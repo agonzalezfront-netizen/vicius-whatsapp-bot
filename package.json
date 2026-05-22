@@ -1,0 +1,23 @@
+{
+  "name": "vicius-whatsapp-bot",
+  "version": "0.1.0",
+  "description": "WhatsApp text bot piloto restaurante 'El Sazón de Carla y César' — Baileys + Anthropic Claude Haiku",
+  "type": "module",
+  "private": true,
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.18",
+    "dotenv": "^16.4.7",
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

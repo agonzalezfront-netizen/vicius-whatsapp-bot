@@ -1,0 +1,47 @@
+{
+  "_comentario": "MENU piloto restaurante 'El Sazón de Carla y César'. Sincronizado con MENU-mockup.json del 2026-05-22. Reemplazar con info real que aporte la pareja en la demo.",
+  "moneda": "CLP",
+  "plato_estandar": {
+    "precio": 7000,
+    "descripcion": "Combo completo: plato fuerte + agregado + jugo",
+    "composicion": ["plato fuerte del día", "agregado a elección", "jugo natural"]
+  },
+  "platos_fuertes_rotativos": [
+    {
+      "nombre": "Carne mechada",
+      "descripcion": "Carne deshilachada en su jugo, especialidad de la casa",
+      "dias_frecuentes": ["lunes", "martes", "miércoles", "jueves", "viernes"],
+      "disponible_default": true
+    },
+    {
+      "nombre": "Sopa del día",
+      "descripcion": "Sopa casera (varía según día)",
+      "dias_frecuentes": ["domingo"],
+      "disponible_default": false
+    }
+  ],
+  "agregados_posibles": ["puré", "arroz", "ensalada", "papas", "porotos"],
+  "jugos_posibles": ["jugo natural de frutas del día"],
+  "modalidad_entrega": ["delivery a domicilio (caminando, zonas cercanas al local)", "retiro presencial"],
+  "pago_actual": ["efectivo presencial", "transferencia bancaria"],
+  "horario": {
+    "lunes":    { "abre": "12:00", "cierra": "22:00" },
+    "martes":   { "abre": "12:00", "cierra": "22:00" },
+    "miércoles":{ "abre": "12:00", "cierra": "22:00" },
+    "jueves":   { "abre": "12:00", "cierra": "22:00" },
+    "viernes":  { "abre": "12:00", "cierra": "22:00" },
+    "sábado":   { "abre": "12:00", "cierra": "22:00" },
+    "domingo":  { "abre": "12:00", "cierra": "18:00" }
+  },
+  "_notas_para_bot": {
+    "estilo_respuesta": "calidez chilena, casual, eficiente. No formal. No usar 'estimado cliente' ni 'usted'.",
+    "manejo_consulta_no_resuelta": "Si el cliente pregunta algo que no está en el menú o información, responder 'déjame consultarle a la pareja y vuelvo en un ratito' — NO inventar respuestas.",
+    "flujo_pedido": [
+      "Saludo personalizado si hay nombre conocido",
+      "Pregunta qué quiere pedir",
+      "Confirma plato + agregado + jugo + dirección de entrega + forma de pago",
+      "Notifica que el pedido fue tomado y dice tiempo aproximado",
+      "Cierre amable"
+    ]
+  }
+}
