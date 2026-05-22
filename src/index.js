@@ -7,10 +7,10 @@ import {
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
-import qrcode from 'qrcode';
 
 import { loadMenu } from './menu.js';
 import { handleMessage } from './handlers.js';
+import { startQRServer, setQR, clearQR, setStatus } from './qr-server.js';
 
 const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -27,6 +27,8 @@ async function start() {
 
   const menu = loadMenu();
   logger.info({ platos: menu.platos_fuertes_rotativos.length }, 'menu cargado');
+
+  startQRServer(logger);
 
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version } = await fetchLatestBaileysVersion();
@@ -47,21 +49,23 @@ async function start() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log('\n========== SCAN ESTE QR DESDE WHATSAPP DEL +56910215579 ==========\n');
-      qrcode.toString(qr, { type: 'terminal', small: true }, (err, str) => {
-        if (err) logger.error({ err: err.message }, 'qr render falla');
-        else console.log(str);
-      });
-      console.log('\n(WhatsApp → Configuración → Dispositivos vinculados → Vincular un dispositivo)\n');
+      setQR(qr);
+      setStatus('qr-pending');
+      logger.info('QR generado, disponible en HTTP /qr');
     }
 
     if (connection === 'close') {
       const code = new Boom(lastDisconnect?.error)?.output?.statusCode;
       const shouldReconnect = code !== DisconnectReason.loggedOut;
+      setStatus('closed');
       logger.warn({ code, shouldReconnect }, 'conexión cerrada');
       if (shouldReconnect) start().catch((e) => logger.error({ err: e.message }, 'restart falla'));
     } else if (connection === 'open') {
+      clearQR();
+      setStatus('open');
       logger.info({ jid: sock.user?.id }, '✅ WhatsApp conectado');
+    } else if (connection === 'connecting') {
+      setStatus('connecting');
     }
   });
 
