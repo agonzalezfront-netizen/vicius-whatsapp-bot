@@ -9,7 +9,6 @@ COPY src ./src
 COPY config ./config
 
 RUN mkdir -p /app/auth_info_baileys
-VOLUME /app/auth_info_baileys
 
 ENV NODE_ENV=production
 ENV AUTH_DIR=/app/auth_info_baileys
