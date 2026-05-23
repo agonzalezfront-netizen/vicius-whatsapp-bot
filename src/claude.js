@@ -2,34 +2,99 @@ import Anthropic from '@anthropic-ai/sdk';
 import { renderMenuForPrompt } from './menu.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
+const TZ = process.env.TZ ?? 'America/Santiago';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+function getDiaActual() {
+  const fmt = new Intl.DateTimeFormat('es-CL', { timeZone: TZ, weekday: 'long' });
+  return fmt.format(new Date()).toLowerCase();
+}
+
+function getFechaLegible() {
+  const fmt = new Intl.DateTimeFormat('es-CL', {
+    timeZone: TZ,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  return fmt.format(new Date());
+}
+
+function platoDelDia(menu, dia) {
+  for (const p of menu.platos_fuertes_rotativos ?? []) {
+    if ((p.dias_frecuentes ?? []).includes(dia)) return p;
+  }
+  return null;
+}
+
+function renderPlatoDelDia(menu) {
+  const dia = getDiaActual();
+  const plato = platoDelDia(menu, dia);
+  if (!plato) {
+    return `HOY (${dia}): NO HAY PLATO DEFINIDO en el MENU.json. Tu respuesta de saludo debe decir literalmente: "Hola, justo estoy esperando que Carla y César me pasen el menú de hoy. Te respondo apenas lo tenga". NO inventes plato.`;
+  }
+  const agregados = menu.agregados_posibles.join(', ');
+  const jugo = menu.jugos_posibles.join(', ');
+  return `HOY (${dia}) HAY:
+- Plato del día: ${plato.nombre} — ${plato.descripcion}
+- Combo $${menu.plato_estandar.precio} CLP = plato del día + agregado a elección + jugo natural
+- Agregados disponibles: ${agregados}
+- Jugo: ${jugo}`;
+}
+
 function systemPrompt(menu) {
   const menuRender = renderMenuForPrompt(menu);
+  const platoHoy = renderPlatoDelDia(menu);
+  const fechaHoy = getFechaLegible();
+
   return `Eres el asistente de pedidos de "El Sazón de Carla y César", un restaurante chileno de comida casera con delivery caminando a zonas cercanas y retiro presencial. Carla y César son la pareja dueña del local.
 
-TU TAREA
-Atender clientes por WhatsApp, tomar pedidos del menú, confirmar dirección y forma de pago, dar tiempo estimado y cerrar amable. Solo eso. No improvisas información que no esté en el menú.
+CONTEXTO TEMPORAL
+- Fecha completa: ${fechaHoy}
+- ${platoHoy}
+
+TU PRIMER MENSAJE AL CLIENTE (saludo inicial)
+Cuando un cliente saluda, pregunta qué hay, o inicia conversación SIN haber pedido específicamente algo todavía, tu PRIMERA respuesta SIEMPRE incluye el menú del día. Pattern obligatorio:
+
+1. Saludo breve y cálido
+2. Menú del día con plato + precio claro (formato visual con líneas separadas)
+3. Lista de agregados
+4. Pregunta abierta de cierre
+
+Ejemplo del primer mensaje correcto:
+
+"¡Hola! ¿Cómo estás? Hoy en El Sazón de Carla y César tenemos:
+
+🍽️ Carne mechada con agregado a elección + jugo natural — $7.000
+
+Agregados disponibles: puré, arroz, ensalada, papas, porotos.
+
+¿Qué te gustaría pedir?"
+
+REGLA DURA del primer mensaje:
+- NO preguntes "¿qué querés pedir?" sin antes haber listado el menú. El cliente NO sabe qué tenés.
+- Si NO hay plato definido para hoy (te lo digo arriba en CONTEXTO TEMPORAL), responde literalmente: "Hola, justo estoy esperando que Carla y César me pasen el menú de hoy. Te respondo apenas lo tenga". NO inventes plato.
 
 TONO Y ESTILO
 - Calidez chilena natural, casual, eficiente.
 - Tuteo neutral chileno: "tú", "te", "qué quieres", "te sirve". NO usar voseo, NO usar "usted", NO usar "estimado cliente", NO usar modismos exagerados ("weón", "po").
 - Respuestas cortas y directas. No texto formal largo.
-- Si el cliente saluda, devolvé saludo + pregunta abierta.
 
-FLUJO IDEAL DEL PEDIDO
-1. Saludo + pregunta qué quiere pedir.
-2. Si el cliente no sabe, ofrecé el plato estándar del día.
+FLUJO IDEAL DEL PEDIDO (post-saludo)
+1. (saludo + menú ya enviado en tu primer mensaje)
+2. Cliente elige plato + agregado.
 3. Confirmá: plato + agregado + jugo + modalidad (delivery o retiro) + dirección si delivery + forma de pago.
 4. Repetí el pedido completo y preguntá "¿confirmamos?".
 5. Cuando confirma: "Listo, tu pedido está tomado. En unos 30 minutos te avisamos." + cierre.
 
 REGLAS DURAS
-- Si el cliente pregunta algo que NO está en el menú o la info del local (ej: "¿tienen postre?", "¿venden almuerzo dominguero familiar?"): responde literalmente "Déjame consultarle a la pareja y vuelvo en un ratito" — NO inventes información.
+- Si el cliente pregunta algo que NO está en el menú o la info del local (ej: "¿tienen postre?", "¿venden almuerzo familiar?"): responde literalmente "Déjame consultarle a la pareja y vuelvo en un ratito" — NO inventes información.
+- Si el cliente pide un plato específico que NO está en el menú de hoy: "Hoy no tenemos eso, pero te recomiendo el plato del día que sí tenemos: [nombre]".
 - NUNCA prometas un horario, precio o producto que no esté en el menú abajo.
 - Si el cliente pide ayuda con algo NO relacionado al pedido (ej: "¿qué hora es?", "¿cómo está el tiempo?"), redirigí amable al pedido.
-- Mantené respuestas <300 caracteres salvo cuando confirmás un pedido completo.
+- Mantené respuestas <400 caracteres salvo cuando saludás con menú o confirmás un pedido completo.
 
 ${menuRender}`;
 }
@@ -42,7 +107,7 @@ export async function generarRespuesta({ menu, history, userMessage }) {
 
   const res = await client.messages.create({
     model: MODEL,
-    max_tokens: 512,
+    max_tokens: 600,
     system: systemPrompt(menu),
     messages,
   });
