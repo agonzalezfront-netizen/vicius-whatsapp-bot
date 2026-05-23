@@ -19,17 +19,11 @@ const logger = pino({
 
 const AUTH_DIR = process.env.AUTH_DIR ?? './auth_info_baileys';
 
-async function start() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    logger.error('ANTHROPIC_API_KEY no seteada en env. Abortando.');
-    process.exit(1);
-  }
+let menu;
+let backoffMs = 2000;
+const BACKOFF_MAX_MS = 30000;
 
-  const menu = loadMenu();
-  logger.info({ platos: menu.platos_fuertes_rotativos.length }, 'menu cargado');
-
-  startQRServer(logger);
-
+async function connectSocket() {
   const { state, saveCreds } = await useMultiFileAuthState(AUTH_DIR);
   const { version } = await fetchLatestBaileysVersion();
   logger.info({ baileys_version: version.join('.') }, 'baileys version');
@@ -45,7 +39,7 @@ async function start() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  sock.ev.on('connection.update', async (update) => {
+  sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
@@ -58,11 +52,19 @@ async function start() {
       const code = new Boom(lastDisconnect?.error)?.output?.statusCode;
       const shouldReconnect = code !== DisconnectReason.loggedOut;
       setStatus('closed');
-      logger.warn({ code, shouldReconnect }, 'conexión cerrada');
-      if (shouldReconnect) start().catch((e) => logger.error({ err: e.message }, 'restart falla'));
+      logger.warn({ code, shouldReconnect, backoffMs }, 'conexión cerrada');
+      if (shouldReconnect) {
+        setTimeout(() => {
+          connectSocket().catch((e) => logger.error({ err: e.message }, 'reconnect falla'));
+        }, backoffMs);
+        backoffMs = Math.min(backoffMs * 2, BACKOFF_MAX_MS);
+      } else {
+        logger.error('loggedOut — borrar AUTH_DIR para re-emparejar');
+      }
     } else if (connection === 'open') {
       clearQR();
       setStatus('open');
+      backoffMs = 2000;
       logger.info({ jid: sock.user?.id }, '✅ WhatsApp conectado');
     } else if (connection === 'connecting') {
       setStatus('connecting');
@@ -79,15 +81,28 @@ async function start() {
       }
     }
   });
+}
 
-  process.on('SIGTERM', async () => {
-    logger.info('SIGTERM, cerrando socket');
-    await sock.end(undefined);
+async function bootstrap() {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    logger.error('ANTHROPIC_API_KEY no seteada en env. Abortando.');
+    process.exit(1);
+  }
+
+  menu = loadMenu();
+  logger.info({ platos: menu.platos_fuertes_rotativos.length }, 'menu cargado');
+
+  startQRServer(logger);
+
+  await connectSocket();
+
+  process.on('SIGTERM', () => {
+    logger.info('SIGTERM, exit');
     process.exit(0);
   });
 }
 
-start().catch((err) => {
-  logger.error({ err: err.message, stack: err.stack }, 'start fatal');
+bootstrap().catch((err) => {
+  logger.error({ err: err.message, stack: err.stack }, 'bootstrap fatal');
   process.exit(1);
 });
