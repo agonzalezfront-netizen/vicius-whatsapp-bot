@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import qrcode from 'qrcode';
+import { getActiveMenu, setActiveMenu, validateMenuPayload, clearActiveMenu } from './active-menu.js';
 
 let currentQR = null;
 let connectionStatus = 'starting';
@@ -16,11 +17,111 @@ export function setStatus(status) {
   connectionStatus = status;
 }
 
+function readJsonBody(req, maxBytes = 64 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let received = 0;
+    req.on('data', (chunk) => {
+      received += chunk.length;
+      if (received > maxBytes) {
+        reject(new Error(`body excede max ${maxBytes} bytes`));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      try {
+        const raw = Buffer.concat(chunks).toString('utf-8');
+        resolve(raw.length === 0 ? {} : JSON.parse(raw));
+      } catch (err) {
+        reject(err);
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function jsonResponse(res, code, payload) {
+  res.writeHead(code, {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  });
+  res.end(JSON.stringify(payload));
+}
+
 export function startQRServer(logger, port = parseInt(process.env.PORT ?? '8080', 10)) {
   const server = createServer(async (req, res) => {
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204, {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      });
+      res.end();
+      return;
+    }
+
     if (req.url === '/healthz') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ status: connectionStatus, hasQR: !!currentQR }));
+      const m = getActiveMenu();
+      jsonResponse(res, 200, {
+        status: connectionStatus,
+        hasQR: !!currentQR,
+        active_menu: m ? { id: m.id, day_label: m.day_label, published_at: m.published_at } : null,
+      });
+      return;
+    }
+
+    if (req.url === '/api/menu/today' && req.method === 'POST') {
+      let body;
+      try {
+        body = await readJsonBody(req);
+      } catch (err) {
+        logger.warn({ err: err.message }, 'POST /api/menu/today body inválido');
+        jsonResponse(res, 400, { ok: false, error: `JSON inválido: ${err.message}` });
+        return;
+      }
+      const validation = validateMenuPayload(body);
+      if (!validation.valid) {
+        logger.warn({ errors: validation.errors }, 'POST /api/menu/today payload inválido');
+        jsonResponse(res, 400, { ok: false, errors: validation.errors });
+        return;
+      }
+      try {
+        const menu = setActiveMenu(body);
+        logger.info(
+          { id: menu.id, day: menu.day_label, protein: menu.protein, aggregates: menu.aggregates.length },
+          '✅ menú activo publicado',
+        );
+        jsonResponse(res, 200, {
+          ok: true,
+          active_menu_id: menu.id,
+          published_at: menu.published_at,
+          received_at: menu.received_at,
+        });
+      } catch (err) {
+        logger.error({ err: err.message }, 'POST /api/menu/today error guardando');
+        jsonResponse(res, 500, { ok: false, error: 'error guardando menú' });
+      }
+      return;
+    }
+
+    if (req.url === '/api/menu/today' && req.method === 'GET') {
+      const m = getActiveMenu();
+      if (!m) {
+        jsonResponse(res, 200, { ok: true, active: null });
+      } else {
+        jsonResponse(res, 200, { ok: true, active: m });
+      }
+      return;
+    }
+
+    if (req.url === '/api/menu/today' && req.method === 'DELETE') {
+      clearActiveMenu();
+      logger.info('menú activo borrado, fallback a config/menu.json');
+      jsonResponse(res, 200, { ok: true, cleared: true });
       return;
     }
 
@@ -75,7 +176,7 @@ export function startQRServer(logger, port = parseInt(process.env.PORT ?? '8080'
   });
 
   server.listen(port, '0.0.0.0', () => {
-    logger.info({ port }, 'QR server escuchando');
+    logger.info({ port }, 'HTTP server escuchando (QR + API menú)');
   });
 
   return server;

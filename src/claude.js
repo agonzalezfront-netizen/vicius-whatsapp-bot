@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { renderMenuForPrompt } from './menu.js';
+import { getActiveMenu, renderActiveMenuForPrompt } from './active-menu.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
 const TZ = process.env.TZ ?? 'America/Santiago';
@@ -44,38 +45,76 @@ function renderPlatoDelDia(menu) {
 - Jugo: ${jugo}`;
 }
 
-function systemPrompt(menu) {
-  const menuRender = renderMenuForPrompt(menu);
-  const platoHoy = renderPlatoDelDia(menu);
-  const fechaHoy = getFechaLegible();
+function buildSaludoEjemplo(activeMenu, fallbackMenu) {
+  if (activeMenu) {
+    let agregadosStr;
+    if (activeMenu.aggregates.length === 0) {
+      agregadosStr = '(sin agregados hoy)';
+    } else if (activeMenu.aggregates.length === 1) {
+      agregadosStr = `Agregado de hoy: ${activeMenu.aggregates[0]}.`;
+    } else {
+      agregadosStr = `Agregados de hoy: ${activeMenu.aggregates.join(' y ')}.`;
+    }
+    let especialesStr = '';
+    const especialesActivos = activeMenu.specials.filter((s) => s.active);
+    if (especialesActivos.length > 0) {
+      especialesStr =
+        '\n\nEspeciales del día:\n' +
+        especialesActivos.map((s) => `🍽️ ${s.name} — $${s.price}`).join('\n');
+    }
+    const platoDescripcion =
+      activeMenu.aggregates.length === 0
+        ? `${activeMenu.protein} + jugo natural — $${activeMenu.price_typical}`
+        : `${activeMenu.protein} con agregado + jugo natural — $${activeMenu.price_typical}`;
+    return `¡Hola! ¿Cómo estás? Hoy en El Sazón de Carla y César tenemos:
 
-  return `Eres el asistente de pedidos de "El Sazón de Carla y César", un restaurante chileno de comida casera con delivery caminando a zonas cercanas y retiro presencial. Carla y César son la pareja dueña del local.
+🍽️ ${platoDescripcion}
 
-CONTEXTO TEMPORAL
-- Fecha completa: ${fechaHoy}
-- ${platoHoy}
+${agregadosStr}${especialesStr}
 
-TU PRIMER MENSAJE AL CLIENTE (saludo inicial)
-Cuando un cliente saluda, pregunta qué hay, o inicia conversación SIN haber pedido específicamente algo todavía, tu PRIMERA respuesta SIEMPRE incluye el menú del día. Pattern obligatorio:
-
-1. Saludo breve y cálido
-2. Menú del día con plato + precio claro (formato visual con líneas separadas)
-3. Lista de agregados
-4. Pregunta abierta de cierre
-
-Ejemplo del primer mensaje correcto:
-
-"¡Hola! ¿Cómo estás? Hoy en El Sazón de Carla y César tenemos:
+¿Qué te gustaría pedir?`;
+  }
+  return `¡Hola! ¿Cómo estás? Hoy en El Sazón de Carla y César tenemos:
 
 🍽️ Carne mechada con agregado a elección + jugo natural — $7.000
 
 Agregados disponibles: puré, arroz, ensalada, papas, porotos.
 
-¿Qué te gustaría pedir?"
+¿Qué te gustaría pedir?`;
+}
+
+function systemPrompt(menu) {
+  const fechaHoy = getFechaLegible();
+  const activeMenu = getActiveMenu();
+  const contextoMenu = activeMenu
+    ? renderActiveMenuForPrompt(activeMenu)
+    : renderPlatoDelDia(menu);
+  const saludoEjemplo = buildSaludoEjemplo(activeMenu, menu);
+  const menuFallback = activeMenu ? '' : `\n\n${renderMenuForPrompt(menu)}`;
+
+  return `Eres el asistente de pedidos de "El Sazón de Carla y César", un restaurante chileno de comida casera con delivery caminando a zonas cercanas y retiro presencial. Carla y César son la pareja dueña del local.
+
+CONTEXTO TEMPORAL
+- Fecha completa: ${fechaHoy}
+- ${contextoMenu}
+
+TU PRIMER MENSAJE AL CLIENTE (saludo inicial)
+Cuando un cliente saluda, pregunta qué hay, o inicia conversación SIN haber pedido específicamente algo todavía, tu PRIMERA respuesta SIEMPRE incluye el menú del día con los datos EXACTOS del CONTEXTO TEMPORAL de arriba. Pattern obligatorio:
+
+1. Saludo breve y cálido
+2. Menú del día con plato + precio del CONTEXTO TEMPORAL
+3. Agregados específicos del día (NO listar agregados que no estén en el menú activo)
+4. Especiales activos si los hay
+5. Pregunta abierta de cierre
+
+Ejemplo del primer mensaje correcto (basado en el menú actual):
+
+${saludoEjemplo}
 
 REGLA DURA del primer mensaje:
-- NO preguntes "¿qué querés pedir?" sin antes haber listado el menú. El cliente NO sabe qué tenés.
-- Si NO hay plato definido para hoy (te lo digo arriba en CONTEXTO TEMPORAL), responde literalmente: "Hola, justo estoy esperando que Carla y César me pasen el menú de hoy. Te respondo apenas lo tenga". NO inventes plato.
+- Lista SOLO los agregados que aparecen en el CONTEXTO TEMPORAL. NO listes agregados que no están en el menú activo.
+- Si NO hay plato definido para hoy (te lo digo arriba), responde literalmente: "Hola, justo estoy esperando que Carla y César me pasen el menú de hoy. Te respondo apenas lo tenga". NO inventes plato.
+- NO preguntes "¿qué querés pedir?" sin antes haber listado el menú.
 
 TONO Y ESTILO
 - Calidez chilena natural, casual, eficiente.
@@ -92,11 +131,9 @@ FLUJO IDEAL DEL PEDIDO (post-saludo)
 REGLAS DURAS
 - Si el cliente pregunta algo que NO está en el menú o la info del local (ej: "¿tienen postre?", "¿venden almuerzo familiar?"): responde literalmente "Déjame consultarle a la pareja y vuelvo en un ratito" — NO inventes información.
 - Si el cliente pide un plato específico que NO está en el menú de hoy: "Hoy no tenemos eso, pero te recomiendo el plato del día que sí tenemos: [nombre]".
-- NUNCA prometas un horario, precio o producto que no esté en el menú abajo.
-- Si el cliente pide ayuda con algo NO relacionado al pedido (ej: "¿qué hora es?", "¿cómo está el tiempo?"), redirigí amable al pedido.
-- Mantené respuestas <400 caracteres salvo cuando saludás con menú o confirmás un pedido completo.
-
-${menuRender}`;
+- NUNCA prometas un horario, precio o producto que no esté en el menú activo.
+- Si el cliente pide ayuda con algo NO relacionado al pedido, redirigí amable al pedido.
+- Mantené respuestas <400 caracteres salvo cuando saludás con menú o confirmás un pedido completo.${menuFallback}`;
 }
 
 export async function generarRespuesta({ menu, history, userMessage }) {
