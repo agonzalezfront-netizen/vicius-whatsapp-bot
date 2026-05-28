@@ -19,20 +19,20 @@ export function setStatus(status) {
 
 function readJsonBody(req, maxBytes = 64 * 1024) {
   return new Promise((resolve, reject) => {
-    const chunks = [];
-    let received = 0;
+    req.setEncoding('utf-8');
+    let raw = '';
+    let receivedBytes = 0;
     req.on('data', (chunk) => {
-      received += chunk.length;
-      if (received > maxBytes) {
+      receivedBytes += Buffer.byteLength(chunk, 'utf-8');
+      if (receivedBytes > maxBytes) {
         reject(new Error(`body excede max ${maxBytes} bytes`));
         req.destroy();
         return;
       }
-      chunks.push(chunk);
+      raw += chunk;
     });
     req.on('end', () => {
       try {
-        const raw = Buffer.concat(chunks).toString('utf-8');
         resolve(raw.length === 0 ? {} : JSON.parse(raw));
       } catch (err) {
         reject(err);
@@ -43,13 +43,15 @@ function readJsonBody(req, maxBytes = 64 * 1024) {
 }
 
 function jsonResponse(res, code, payload) {
+  const body = Buffer.from(JSON.stringify(payload), 'utf-8');
   res.writeHead(code, {
-    'Content-Type': 'application/json',
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': body.length,
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, GET, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   });
-  res.end(JSON.stringify(payload));
+  res.end(body);
 }
 
 export function startQRServer(logger, port = parseInt(process.env.PORT ?? '8080', 10)) {
