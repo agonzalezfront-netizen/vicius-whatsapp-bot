@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import qrcode from 'qrcode';
 import { getActiveMenu, setActiveMenu, validateMenuPayload, clearActiveMenu } from './active-menu.js';
+import { clearAllHistories } from './handlers.js';
 
 let currentQR = null;
 let connectionStatus = 'starting';
@@ -93,15 +94,17 @@ export function startQRServer(logger, port = parseInt(process.env.PORT ?? '8080'
       }
       try {
         const menu = setActiveMenu(body);
+        const cleared = clearAllHistories();
         logger.info(
-          { id: menu.id, day: menu.day_label, protein: menu.protein, aggregates: menu.aggregates.length },
-          '✅ menú activo publicado',
+          { id: menu.id, day: menu.day_label, protein: menu.protein, aggregates: menu.aggregates.length, histories_cleared: cleared },
+          '✅ menú activo publicado + history limpiada',
         );
         jsonResponse(res, 200, {
           ok: true,
           active_menu_id: menu.id,
           published_at: menu.published_at,
           received_at: menu.received_at,
+          histories_cleared: cleared,
         });
       } catch (err) {
         logger.error({ err: err.message }, 'POST /api/menu/today error guardando');

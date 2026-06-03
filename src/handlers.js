@@ -7,6 +7,12 @@ const JITTER_MAX = parseInt(process.env.JITTER_MAX_MS ?? '3000', 10);
 
 const histories = new Map();
 
+export function clearAllHistories() {
+  const n = histories.size;
+  histories.clear();
+  return n;
+}
+
 function getHistory(jid) {
   if (!histories.has(jid)) histories.set(jid, []);
   return histories.get(jid);
