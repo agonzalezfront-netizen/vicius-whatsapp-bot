@@ -8,8 +8,15 @@ const JITTER_MAX = parseInt(process.env.JITTER_MAX_MS ?? '3000', 10);
 // dueño intervino manualmente desde el teléfono. Tras este lapso sin nueva
 // intervención humana, el bot retoma la conversación.
 const OWNER_PAUSE_MS = parseInt(process.env.OWNER_PAUSE_MS ?? String(60 * 60 * 1000), 10);
+// Sesión conversacional: tras este gap (mismo día) el bot re-saluda suave sin
+// reenviar el menú completo. En un cruce de día se hace reset total.
+const SESSION_MS = parseInt(process.env.SESSION_MS ?? String(45 * 60 * 1000), 10);
+const TZ = process.env.TZ ?? 'America/Santiago';
 
 const histories = new Map();
+
+// jid → timestamp (ms) de la última interacción del cliente. Para gestión de sesión.
+const lastInteraction = new Map();
 
 // jid → timestamp (ms) de la última intervención manual del dueño en ese chat.
 // Mientras Date.now() - ts < OWNER_PAUSE_MS, el bot NO responde a ese cliente.
@@ -70,6 +77,42 @@ function jitterDelay() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+function fechaLocal(ts) {
+  // YYYY-MM-DD en la TZ del local, para detectar cruce de día.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(ts));
+}
+
+// Evalúa el estado de sesión para este cliente. Devuelve 'nueva' (cruce de día o
+// primer contacto → reset + menú), 'continua' (gap ≤ 45min) o 'resaludo' (mismo
+// día pero gap > 45min → re-saludo suave sin menú completo).
+function evaluarSesion(jid, now) {
+  const prev = lastInteraction.get(jid);
+  lastInteraction.set(jid, now);
+  if (!prev) return 'nueva';
+  if (fechaLocal(prev) !== fechaLocal(now)) {
+    // cruce de día: el menú de ayer ya no existe → reset
+    histories.delete(jid);
+    return 'nueva';
+  }
+  if (now - prev > SESSION_MS) return 'resaludo';
+  return 'continua';
+}
+
+// Recorta el bloque <<PEDIDO>>...<<FIN>> del texto (el cliente NO lo ve) y
+// devuelve { limpio, pedido } con el JSON parseado (o null si no hay/no parsea).
+function extraerPedido(texto) {
+  const m = texto.match(/<<PEDIDO>>([\s\S]*?)<<FIN>>/);
+  if (!m) return { limpio: texto, pedido: null };
+  const limpio = texto.replace(/<<PEDIDO>>[\s\S]*?<<FIN>>/, '').trim();
+  try {
+    return { limpio, pedido: JSON.parse(m[1].trim()) };
+  } catch {
+    return { limpio, pedido: null };
+  }
+}
+
 function extractText(msg) {
   return (
     msg.message?.conversation ??
@@ -123,17 +166,28 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   await sock.readMessages([msg.key]);
   await sock.sendPresenceUpdate('composing', jid);
 
+  const sesion = evaluarSesion(jid, Date.now());
+  logger.info({ jid, sesion }, 'estado de sesión');
+
   pushHistory(jid, 'user', userText);
   const history = getHistory(jid).slice(0, -1);
 
   let respuesta;
   try {
-    const result = await generarRespuesta({ menu, history, userMessage: userText });
+    const result = await generarRespuesta({ menu, history, userMessage: userText, sesion });
     respuesta = result.texto;
     logger.info({ jid, in: result.usage?.input_tokens, out: result.usage?.output_tokens }, 'claude OK');
   } catch (err) {
     logger.error({ jid, err: err.message }, 'claude FALLA');
     respuesta = 'Disculpa, tuve un problema técnico. Déjame consultarle a la pareja y vuelvo en un ratito.';
+  }
+
+  // El cliente NO debe ver el bloque <<PEDIDO>>. Recortarlo siempre.
+  const { limpio, pedido } = extraerPedido(respuesta);
+  respuesta = limpio;
+  if (pedido) {
+    // En Bloque 4 esto hace POST al wizard. Por ahora solo logueamos.
+    logger.info({ jid, total: pedido.total, metodo: pedido.metodo_pago, items: pedido.items?.length }, '🧾 pedido confirmado (parse OK)');
   }
 
   await sleep(jitterDelay());

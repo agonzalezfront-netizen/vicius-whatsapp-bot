@@ -18,6 +18,10 @@
   "extra_3er_agregado": 2000,
   "extra_doble_agregado": 2000,
   "permite_modificaciones_libres": true,
+  "datos_transferencia": {
+    "configurado": false,
+    "texto": "PENDIENTE — Carla y César deben pasar los datos reales de transferencia (banco, tipo de cuenta, número, titular, RUT)."
+  },
   "jugos_posibles": ["jugo natural del día"],
   "modalidad_entrega": ["delivery (zonas cercanas)", "retiro/consumo en local"],
   "pago_actual": ["efectivo", "transferencia"],
