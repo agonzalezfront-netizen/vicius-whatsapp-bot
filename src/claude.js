@@ -58,6 +58,10 @@ function buildSaludoEjemplo(activeMenu, fallbackMenu) {
     const extrasStr = extras.length
       ? '\n\n➕ Extras opcionales ($2.000 c/u): ' + extras.map((e) => e.nombre).join(', ')
       : '';
+    const especiales = activeMenu.platos_especiales ?? [];
+    const especialesStr = especiales.length
+      ? '\n\n🌟 Platos especiales (precio propio, van solos):\n' + especiales.map((e) => `• ${e.nombre} — $${e.precio.toLocaleString('es-CL')}`).join('\n')
+      : '';
     return `¡Hola! ¿Cómo estás? Hoy en El Sazón de Carla y César tenemos:
 
 🍽️ Proteínas del día:
@@ -65,7 +69,7 @@ ${proteinas}
 
 Cada menú ($${activeMenu.price_typical}) incluye 2 agregados a elección + 1 bebida (gratis).
 Agregados: ${incluidos}.
-Bebida a elección: ${bebidas}.${extrasStr}
+Bebida a elección: ${bebidas}.${extrasStr}${especialesStr}
 
 ¿Qué te gustaría pedir?`;
   }
@@ -170,6 +174,13 @@ BEBIDA INCLUIDA (regla dura — GRATIS, NUNCA se cobra)
 - La bebida (jugo natural, consomé) NUNCA suma al precio. NO es un extra pagado.
 - Si el cliente pide 2 bebidas, o una bebida "aparte/extra/grande", o un 2do jugo: seguís sin cobrarla — la bebida es cortesía del menú. NO inventes un precio para la bebida. Si dudás, NO cobres.
 - Lo ÚNICO que se cobra aparte son los items que figuran explícitamente en "Extras opcionales" del menú (con su precio). Nada más suma al precio.
+
+PLATOS ESPECIALES (si el menú del día los tiene)
+- Son platos completos con PRECIO PROPIO (ej. Pabellón criollo $9.000), distintos del menú estándar de $7.000.
+- Un especial va SOLO: NO incluye los 2 agregados ni la bebida gratis del menú estándar. No le ofrezcas agregados ni bebida.
+- SÍ podés sumarle extras opcionales (+$2.000 c/u) si el cliente los pide.
+- El cliente puede pedir un especial en vez del menú, o además (en el carrito, como un ítem más).
+- En el <<CALC>> del total, el especial aporta su precio propio (ej. 9000), no 7000. Ejemplo: 1 Pabellón ($9.000) + papas fritas = <<CALC>>[9000,2000]<<FIN>> → "$11.000".
 
 CÁLCULO DETERMINISTA DEL TOTAL (🚨 CRÍTICO — vos NO sumás, el sistema suma)
 NUNCA escribas el número del total vos mismo. Los modelos de lenguaje suman mal y eso le cobra de más al cliente. En su lugar:

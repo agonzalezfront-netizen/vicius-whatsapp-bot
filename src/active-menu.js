@@ -122,6 +122,13 @@ export function setActiveMenu(payload) {
     .map((b) => String(b).trim())
     .filter(Boolean);
 
+  // Platos especiales (pedido único, precio propio, sin agregados ni bebida).
+  const especiales = Array.isArray(payload.platos_especiales)
+    ? payload.platos_especiales
+        .filter((e) => e && e.nombre)
+        .map((e) => ({ nombre: String(e.nombre).trim(), precio: Number(e.precio) || 0, desc: (e.desc ?? '').trim() }))
+    : [];
+
   activeMenu = {
     id: `menu_${randomUUID().slice(0, 8)}`,
     day_label: payload.day_label.trim(),
@@ -131,6 +138,7 @@ export function setActiveMenu(payload) {
     agregados_incluidos: incluidos,
     extras_pagados: extras,
     bebida_incluida: bebidas,
+    platos_especiales: especiales,
     price_typical: payload.price_typical ?? 7000,
     published_at: payload.published_at,
     received_at: new Date().toISOString(),
@@ -150,6 +158,10 @@ export function renderActiveMenuForPrompt(menu) {
     .map((e) => `${e.nombre} ($${e.precio})`)
     .join(', ') || '(ninguno hoy)';
   const bebidas = (menu.bebida_incluida ?? ['Jugo natural']).join(' o ');
+  const especiales = (menu.platos_especiales ?? []);
+  const especialesStr = especiales.length
+    ? especiales.map((e) => `  • ${e.nombre} — $${e.precio}${e.desc ? ` (${e.desc})` : ''}`).join('\n')
+    : null;
 
   return `MENÚ DEL DÍA (publicado ${menu.published_at} — ${menu.day_label}, ${menu.day_name})
 - Un menú $${menu.price_typical} = proteína del día + 2 agregados a elección + 1 bebida incluida.
@@ -158,7 +170,9 @@ ${proteinas}
 - Agregados incluidos (elegí 2): ${incluidos}
 - Bebida incluida (GRATIS, elegí 1): ${bebidas}
 - Extras opcionales (se cobran aparte): ${extras}
-- 3er agregado o doble del mismo agregado: +$2.000 c/u.
+- 3er agregado o doble del mismo agregado: +$2.000 c/u.${especialesStr ? `
+- PLATOS ESPECIALES (pedido único, precio propio, SIN agregados ni bebida incluida):
+${especialesStr}` : ''}
 
 REGLA PARA EL BOT: usá estos datos exactos del menú del día. Ignorá el menú de fallback.`;
 }
