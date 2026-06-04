@@ -160,7 +160,7 @@ export function renderActiveMenuForPrompt(menu) {
   const bebidas = (menu.bebida_incluida ?? ['Jugo natural']).join(' o ');
   const especiales = (menu.platos_especiales ?? []);
   const especialesStr = especiales.length
-    ? especiales.map((e) => `  • ${e.nombre} — $${e.precio}${e.desc ? ` (${e.desc})` : ''}`).join('\n')
+    ? especiales.map((e) => `  • ${e.nombre} — $${e.precio}${e.desc ? ` — ${e.desc}` : ''}`).join('\n')
     : null;
 
   return `MENÚ DEL DÍA (publicado ${menu.published_at} — ${menu.day_label}, ${menu.day_name})

@@ -11,6 +11,8 @@ import pino from 'pino';
 import { loadMenu } from './menu.js';
 import { handleMessage } from './handlers.js';
 import { startQRServer, setQR, clearQR, setStatus } from './qr-server.js';
+import { cargarMenuActual } from './pedidos-client.js';
+import { validateMenuPayload, setActiveMenu } from './active-menu.js';
 
 const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -91,6 +93,25 @@ async function bootstrap() {
 
   menu = loadMenu();
   logger.info({ proteinas: (menu.proteinas_dia ?? []).length }, 'menu cargado');
+
+  // Recuperar el último menú publicado desde el wizard (sobrevive redeploys).
+  // Best-effort: si el wizard no responde, el bot arranca igual (sin menú del día).
+  try {
+    const payload = await cargarMenuActual();
+    if (payload) {
+      const { valid } = validateMenuPayload(payload);
+      if (valid) {
+        const m = setActiveMenu(payload);
+        logger.info({ id: m.id, day: m.day_label }, '🔁 menú activo recuperado del wizard (persistencia)');
+      } else {
+        logger.warn('menú persistido en el wizard no validó, se ignora');
+      }
+    } else {
+      logger.info('no había menú persistido en el wizard');
+    }
+  } catch (err) {
+    logger.warn({ err: err.message }, 'no se pudo recuperar el menú del wizard (no crítico, el bot arranca igual)');
+  }
 
   startQRServer(logger);
 

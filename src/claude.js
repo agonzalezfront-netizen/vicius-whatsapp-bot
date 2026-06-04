@@ -60,7 +60,7 @@ function buildSaludoEjemplo(activeMenu, fallbackMenu) {
       : '';
     const especiales = activeMenu.platos_especiales ?? [];
     const especialesStr = especiales.length
-      ? '\n\n🌟 Platos especiales (precio propio, con bebida gratis; agregados $2.000 c/u):\n' + especiales.map((e) => `• ${e.nombre} — $${e.precio.toLocaleString('es-CL')}`).join('\n')
+      ? '\n\n🌟 Platos especiales (precio propio, con bebida gratis; agregados $2.000 c/u):\n' + especiales.map((e) => `• ${e.nombre} — $${e.precio.toLocaleString('es-CL')}${e.desc ? `\n  _${e.desc}_` : ''}`).join('\n')
       : '';
     return `¡Hola! ¿Cómo estás? Hoy en El Sazón de Carla y César tenemos:
 
@@ -150,7 +150,7 @@ SECUENCIA DEL PEDIDO (carrito multi-ítem, patrón cajero — seguí este orden)
    1️⃣ Agregar otro menú
    2️⃣ Cerrar el pedido"
    (Usá números porque algunos clientes responden con un dígito. Aceptá también texto: "otro", "eso es todo", etc.)
-4. Si agrega otro menú → agregalo y repetí el paso 3.
+4. Si elige "1" / "agregar otro menú" → RE-MOSTRÁ EL MENÚ COMPLETO DEL DÍA otra vez (el mismo del saludo inicial: proteínas del día, agregados a elección, incluido gratis, extras opcionales, Y los platos especiales). NO muestres una versión recortada. El cliente arma el siguiente ítem con TODO a la vista — puede elegir un menú estándar O un especial (incluso pedir 2 especiales, o el mismo dos veces). Después agregás ese ítem al carrito y repetís el paso 3.
 5. Cuando cierra ("2", "eso es todo", "cerrar") → mostrá RESUMEN estructurado. NO calcules el total vos (ver CÁLCULO DETERMINISTA abajo): usá el placeholder {{TOTAL}}:
    "Tu pedido:
    • Menú 1: [proteína] con [agregado1] y [agregado2]

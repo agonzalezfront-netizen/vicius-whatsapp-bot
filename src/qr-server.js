@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import qrcode from 'qrcode';
 import { getActiveMenu, setActiveMenu, validateMenuPayload, clearActiveMenu } from './active-menu.js';
 import { clearAllHistories } from './handlers.js';
+import { guardarMenuActual } from './pedidos-client.js';
 
 let currentQR = null;
 let connectionStatus = 'starting';
@@ -97,6 +98,10 @@ export function startQRServer(logger, port = parseInt(process.env.PORT ?? '8080'
       try {
         const menu = setActiveMenu(body);
         const cleared = clearAllHistories();
+        // Persistir el menú publicado en el wizard (fire-and-forget) para sobrevivir redeploys.
+        guardarMenuActual(body).catch((err) =>
+          logger.warn({ err: err.message }, 'no se pudo persistir el menú en el wizard (no crítico)'),
+        );
         logger.info(
           { id: menu.id, day: menu.day_label, proteinas: menu.proteinas_dia.length, agregados: menu.agregados_incluidos.length, histories_cleared: cleared },
           '✅ menú activo publicado + history limpiada',

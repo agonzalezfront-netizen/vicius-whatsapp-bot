@@ -27,6 +27,28 @@ export async function crearPedido(pedido) {
   return res.json();
 }
 
+// Persistencia del menú activo: el bot guarda el payload publicado en el wizard
+// (SQLite persistente) y lo recupera al arrancar, para sobrevivir redeploys de Railway.
+export async function guardarMenuActual(payload) {
+  const res = await fetch(`${WIZARD_BASE}/api/menu-actual`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: WIZARD_AUTH, 'User-Agent': UA },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`guardarMenuActual HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function cargarMenuActual() {
+  const res = await fetch(`${WIZARD_BASE}/api/menu-actual`, {
+    method: 'GET',
+    headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
+  });
+  if (!res.ok) throw new Error(`cargarMenuActual HTTP ${res.status}`);
+  const data = await res.json();
+  return data.menu ?? null;
+}
+
 export async function subirComprobante(pedidoId, buffer, mime) {
   const form = new FormData();
   const ext = mime?.includes('png') ? 'png' : 'jpg';
