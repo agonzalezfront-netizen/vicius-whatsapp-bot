@@ -1,29 +1,34 @@
 {
-  "_comentario": "MENU piloto restaurante 'El Sazón de Carla y César'. Sincronizado con MENU-mockup.json del 2026-05-22. Reemplazar con info real que aporte la pareja en la demo.",
+  "_comentario": "MENU piloto El Sazón de Carla y César. Modelo real capturado en demo 2026-06-03. El local usa la palabra 'menú' para su oferta.",
   "moneda": "CLP",
   "plato_estandar": {
     "precio": 7000,
-    "descripcion": "Combo completo: plato fuerte + agregado + jugo",
-    "composicion": ["plato fuerte del día", "agregado a elección", "jugo natural"]
+    "incluye_agregados": 2,
+    "descripcion": "Un menú = proteína del día + 2 agregados a elección + jugo natural"
   },
-  "platos_fuertes_rotativos": [
-    {
-      "nombre": "Carne mechada",
-      "descripcion": "Carne deshilachada en su jugo, especialidad de la casa",
-      "dias_frecuentes": ["lunes", "martes", "miércoles", "jueves", "viernes"],
-      "disponible_default": true
-    },
-    {
-      "nombre": "Sopa del día",
-      "descripcion": "Sopa casera (varía según día)",
-      "dias_frecuentes": ["domingo"],
-      "disponible_default": false
-    }
+  "proteinas_dia": [
+    { "nombre": "Carne mechada", "disponible": true },
+    { "nombre": "Pollo asado", "disponible": true }
   ],
-  "agregados_posibles": ["puré", "arroz", "ensalada", "papas", "porotos"],
-  "jugos_posibles": ["jugo natural de frutas del día"],
-  "modalidad_entrega": ["delivery a domicilio (caminando, zonas cercanas al local)", "retiro presencial"],
-  "pago_actual": ["efectivo presencial", "transferencia bancaria"],
+  "agregados_incluidos": ["puré", "arroz", "ensalada", "papas", "porotos", "tajadas"],
+  "extras_pagados": [
+    { "nombre": "tostones al ajillo", "precio": 2000 },
+    { "nombre": "papas fritas", "precio": 2000 }
+  ],
+  "extra_3er_agregado": 2000,
+  "extra_doble_agregado": 2000,
+  "permite_modificaciones_libres": true,
+  "jugos_posibles": ["jugo natural del día"],
+  "modalidad_entrega": ["delivery (zonas cercanas)", "retiro/consumo en local"],
+  "pago_actual": ["efectivo", "transferencia"],
+  "info_local": {
+    "direccion": "Vicuña Mackenna Oriente 6571, La Florida",
+    "estacionamiento": false,
+    "delivery_centro_km": 1.5,
+    "delivery_centro_precio": 1000,
+    "delivery_foraneo_precio_min": 3000,
+    "delivery_foraneo_precio_max": 4000
+  },
   "horario": {
     "lunes":    { "abre": "12:00", "cierra": "22:00" },
     "martes":   { "abre": "12:00", "cierra": "22:00" },
@@ -34,14 +39,7 @@
     "domingo":  { "abre": "12:00", "cierra": "18:00" }
   },
   "_notas_para_bot": {
-    "estilo_respuesta": "calidez chilena, casual, eficiente. No formal. No usar 'estimado cliente' ni 'usted'.",
-    "manejo_consulta_no_resuelta": "Si el cliente pregunta algo que no está en el menú o información, responder 'déjame consultarle a la pareja y vuelvo en un ratito' — NO inventar respuestas.",
-    "flujo_pedido": [
-      "Saludo personalizado si hay nombre conocido",
-      "Pregunta qué quiere pedir",
-      "Confirma plato + agregado + jugo + dirección de entrega + forma de pago",
-      "Notifica que el pedido fue tomado y dice tiempo aproximado",
-      "Cierre amable"
-    ]
+    "estilo_respuesta": "calidez chilena, casual, eficiente. Usá la palabra 'menú' como el local. No formal.",
+    "manejo_consulta_no_resuelta": "Si preguntan algo fuera del menú/info del local, derivar a la pareja — NO inventar."
   }
 }

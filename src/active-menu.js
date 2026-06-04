@@ -26,6 +26,10 @@ export function dayCodeToName(code) {
   return DAY_CODE_TO_NAME[code] ?? null;
 }
 
+// Acepta dos shapes:
+//   - NUEVO: { proteinas_dia: [{nombre, disponible}], agregados_incluidos: [], extras_pagados: [{nombre,precio}] }
+//   - VIEJO (Menu Manager actual de Cortex): { protein: "x", aggregates: [], specials: [{name,price,desc,active}] }
+// Mantenemos retrocompat hasta que la UI del Menu Manager emita el shape nuevo.
 export function validateMenuPayload(body) {
   const errors = [];
 
@@ -39,40 +43,50 @@ export function validateMenuPayload(body) {
   if (!VALID_DAY_CODES.has(body.day_code)) {
     errors.push(`day_code debe ser uno de: D L M X J V S (recibido: ${JSON.stringify(body.day_code)})`);
   }
-  if (typeof body.protein !== 'string' || body.protein.trim().length === 0) {
-    errors.push('protein debe ser string no vacío');
-  }
-  if (!Array.isArray(body.aggregates)) {
-    errors.push('aggregates debe ser array (puede ser vacío)');
-  } else if (body.aggregates.length > 2) {
-    errors.push(`aggregates máximo 2 elementos (recibidos ${body.aggregates.length})`);
-  } else if (body.aggregates.some((a) => typeof a !== 'string')) {
-    errors.push('aggregates debe contener solo strings');
-  }
-  if (!Number.isInteger(body.price_typical) || body.price_typical < 0) {
-    errors.push('price_typical debe ser entero >= 0');
-  }
-  if (!Array.isArray(body.specials)) {
-    errors.push('specials debe ser array (puede ser vacío)');
-  } else {
-    body.specials.forEach((s, i) => {
-      if (typeof s !== 'object' || s === null) {
-        errors.push(`specials[${i}] debe ser objeto`);
-        return;
-      }
-      if (typeof s.name !== 'string' || s.name.trim().length === 0) {
-        errors.push(`specials[${i}].name debe ser string no vacío`);
-      }
-      if (!Number.isInteger(s.price) || s.price < 0) {
-        errors.push(`specials[${i}].price debe ser entero >= 0`);
-      }
-      if (s.desc !== undefined && typeof s.desc !== 'string') {
-        errors.push(`specials[${i}].desc debe ser string si está presente`);
-      }
-      if (typeof s.active !== 'boolean') {
-        errors.push(`specials[${i}].active debe ser boolean`);
-      }
+
+  const tieneModeloNuevo = Array.isArray(body.proteinas_dia);
+  if (tieneModeloNuevo) {
+    const dispo = body.proteinas_dia.filter((p) => p && p.disponible !== false);
+    if (dispo.length === 0) errors.push('proteinas_dia debe tener al menos 1 proteína disponible');
+    body.proteinas_dia.forEach((p, i) => {
+      if (typeof p?.nombre !== 'string' || !p.nombre.trim()) errors.push(`proteinas_dia[${i}].nombre requerido`);
     });
+  } else {
+    if (typeof body.protein !== 'string' || body.protein.trim().length === 0) {
+      errors.push('protein (o proteinas_dia) requerido');
+    }
+  }
+
+  // agregados: modelo nuevo usa agregados_incluidos; viejo usa aggregates (máx 2 por compat).
+  if (body.agregados_incluidos !== undefined && !Array.isArray(body.agregados_incluidos)) {
+    errors.push('agregados_incluidos debe ser array');
+  }
+  if (body.aggregates !== undefined) {
+    if (!Array.isArray(body.aggregates)) errors.push('aggregates debe ser array');
+    else if (body.aggregates.some((a) => typeof a !== 'string')) errors.push('aggregates debe contener solo strings');
+  }
+
+  // extras pagados (modelo nuevo) — opcional pero si viene valida shape.
+  if (body.extras_pagados !== undefined) {
+    if (!Array.isArray(body.extras_pagados)) errors.push('extras_pagados debe ser array');
+    else body.extras_pagados.forEach((e, i) => {
+      if (typeof e?.nombre !== 'string' || !e.nombre.trim()) errors.push(`extras_pagados[${i}].nombre requerido`);
+      if (!Number.isInteger(e?.precio) || e.precio < 0) errors.push(`extras_pagados[${i}].precio entero >= 0 requerido`);
+    });
+  }
+
+  // specials (modelo viejo) — opcional, validar si viene.
+  if (body.specials !== undefined) {
+    if (!Array.isArray(body.specials)) errors.push('specials debe ser array');
+    else body.specials.forEach((s, i) => {
+      if (typeof s?.name !== 'string' || !s.name.trim()) errors.push(`specials[${i}].name requerido`);
+      if (!Number.isInteger(s?.price) || s.price < 0) errors.push(`specials[${i}].price entero >= 0 requerido`);
+      if (typeof s?.active !== 'boolean') errors.push(`specials[${i}].active boolean requerido`);
+    });
+  }
+
+  if (body.price_typical !== undefined && (!Number.isInteger(body.price_typical) || body.price_typical < 0)) {
+    errors.push('price_typical debe ser entero >= 0');
   }
   if (typeof body.published_at !== 'string' || isNaN(Date.parse(body.published_at))) {
     errors.push('published_at debe ser ISO 8601 string parseable');
@@ -82,20 +96,34 @@ export function validateMenuPayload(body) {
 }
 
 export function setActiveMenu(payload) {
+  // Normalizar ambos shapes a un modelo interno único.
+  const proteinas = Array.isArray(payload.proteinas_dia)
+    ? payload.proteinas_dia.map((p) => ({ nombre: p.nombre.trim(), disponible: p.disponible !== false }))
+    : [{ nombre: (payload.protein || '').trim(), disponible: true }];
+
+  const incluidos = (payload.agregados_incluidos ?? payload.aggregates ?? [])
+    .map((a) => String(a).trim())
+    .filter(Boolean);
+
+  // extras: del modelo nuevo (extras_pagados) o derivados de specials activos del viejo.
+  let extras = [];
+  if (Array.isArray(payload.extras_pagados)) {
+    extras = payload.extras_pagados.map((e) => ({ nombre: e.nombre.trim(), precio: e.precio }));
+  } else if (Array.isArray(payload.specials)) {
+    extras = payload.specials
+      .filter((s) => s.active)
+      .map((s) => ({ nombre: s.name.trim(), precio: s.price }));
+  }
+
   activeMenu = {
     id: `menu_${randomUUID().slice(0, 8)}`,
     day_label: payload.day_label.trim(),
     day_code: payload.day_code,
     day_name: dayCodeToName(payload.day_code),
-    protein: payload.protein.trim(),
-    aggregates: payload.aggregates.map((a) => a.trim()).filter(Boolean),
-    price_typical: payload.price_typical,
-    specials: payload.specials.map((s) => ({
-      name: s.name.trim(),
-      price: s.price,
-      desc: (s.desc ?? '').trim(),
-      active: s.active,
-    })),
+    proteinas_dia: proteinas,
+    agregados_incluidos: incluidos,
+    extras_pagados: extras,
+    price_typical: payload.price_typical ?? 7000,
     published_at: payload.published_at,
     received_at: new Date().toISOString(),
   };
@@ -105,29 +133,22 @@ export function setActiveMenu(payload) {
 export function renderActiveMenuForPrompt(menu) {
   if (!menu) return null;
 
-  let agregadosStr;
-  if (menu.aggregates.length === 0) agregadosStr = 'sin agregados';
-  else if (menu.aggregates.length === 1) agregadosStr = `con ${menu.aggregates[0]}`;
-  else agregadosStr = `con ${menu.aggregates[0]} y ${menu.aggregates[1]}`;
+  const proteinas = menu.proteinas_dia
+    .filter((p) => p.disponible !== false)
+    .map((p) => `- ${p.nombre}`)
+    .join('\n');
+  const incluidos = menu.agregados_incluidos.join(', ');
+  const extras = (menu.extras_pagados ?? [])
+    .map((e) => `${e.nombre} ($${e.precio})`)
+    .join(', ') || '(ninguno hoy)';
 
-  const especialesActivos = menu.specials.filter((s) => s.active);
-  const especialesStr = especialesActivos.length
-    ? especialesActivos
-        .map((s) => `- ${s.name}${s.desc ? ` (${s.desc})` : ''} — $${s.price} CLP`)
-        .join('\n')
-    : '(ninguno hoy)';
+  return `MENÚ DEL DÍA (publicado ${menu.published_at} — ${menu.day_label}, ${menu.day_name})
+- Un menú $${menu.price_typical} = proteína del día + 2 agregados a elección + jugo natural.
+- Proteínas de hoy:
+${proteinas}
+- Agregados incluidos (elegí 2): ${incluidos}
+- Extras opcionales (se cobran aparte): ${extras}
+- 3er agregado o doble del mismo agregado: +$2.000 c/u.
 
-  return `MENÚ ACTIVO (publicado ${menu.published_at} desde Menu Manager)
-- Día: ${menu.day_label} (${menu.day_name})
-- Plato del día: ${menu.protein} ${agregadosStr}
-- Precio típico (combo): $${menu.price_typical} CLP = plato del día + jugo natural
-- Especiales del día:
-${especialesStr}
-
-REGLA PARA EL BOT
-Construye la respuesta de saludo usando estos datos exactos del menú activo. Ignora el menú de fallback (config/menu.json).
-- Si hay 0 agregados, presenta solo la proteína.
-- Si hay 1 agregado, formato singular: "con [agregado]".
-- Si hay 2 agregados, formato "con [agregado1] y [agregado2]".
-- Si hay especiales activos, los listas DESPUÉS del plato típico con precio aparte.`;
+REGLA PARA EL BOT: usá estos datos exactos del menú del día. Ignorá el menú de fallback.`;
 }

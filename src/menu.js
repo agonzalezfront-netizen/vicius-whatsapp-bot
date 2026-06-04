@@ -10,20 +10,23 @@ export function loadMenu(path = process.env.MENU_PATH ?? './config/menu.json') {
 }
 
 export function renderMenuForPrompt(menu) {
-  const platos = menu.platos_fuertes_rotativos
-    .map((p) => `- ${p.nombre}: ${p.descripcion} (común: ${p.dias_frecuentes.join(', ')})`)
-    .join('\n');
-  const agregados = menu.agregados_posibles.join(', ');
-  const jugos = menu.jugos_posibles.join(', ');
-  const modalidad = menu.modalidad_entrega.join(' o ');
-  const pago = menu.pago_actual.join(' o ');
+  const proteinas = (menu.proteinas_dia ?? [])
+    .filter((p) => p.disponible !== false)
+    .map((p) => `- ${p.nombre}`)
+    .join('\n') || '- (sin proteínas definidas)';
+  const incluidos = (menu.agregados_incluidos ?? []).join(', ');
+  const extras = (menu.extras_pagados ?? [])
+    .map((e) => `${e.nombre} ($${e.precio})`)
+    .join(', ') || '(ninguno)';
+  const incluyeN = menu.plato_estandar?.incluye_agregados ?? 2;
+  const pago = (menu.pago_actual ?? []).join(' o ');
 
-  return `MENÚ ACTUAL
-- Plato estándar $${menu.plato_estandar.precio} CLP = ${menu.plato_estandar.descripcion}
-- Platos fuertes rotativos:
-${platos}
-- Agregados disponibles: ${agregados}
-- Jugos: ${jugos}
-- Entrega: ${modalidad}
-- Pago: ${pago}`;
+  return `MENÚ ESTÁNDAR (fallback — usar solo si no hay menú del día publicado)
+- Un menú $${menu.plato_estandar.precio} CLP = proteína del día + ${incluyeN} agregados a elección + jugo natural.
+- Proteínas del día:
+${proteinas}
+- Agregados incluidos (elegí ${incluyeN}): ${incluidos}
+- Extras opcionales (se cobran aparte): ${extras}
+- 3er agregado o doble del mismo agregado: +$${menu.extra_3er_agregado ?? 2000} c/u.
+- Pago: ${pago}.`;
 }

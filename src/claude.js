@@ -23,64 +23,51 @@ function getFechaLegible() {
   return fmt.format(new Date());
 }
 
-function platoDelDia(menu, dia) {
-  for (const p of menu.platos_fuertes_rotativos ?? []) {
-    if ((p.dias_frecuentes ?? []).includes(dia)) return p;
-  }
-  return null;
-}
-
 function renderPlatoDelDia(menu) {
   const dia = getDiaActual();
-  const plato = platoDelDia(menu, dia);
-  if (!plato) {
-    return `HOY (${dia}): NO HAY PLATO DEFINIDO en el MENU.json. Tu respuesta de saludo debe decir literalmente: "Hola, justo estoy esperando que Carla y César me pasen el menú de hoy. Te respondo apenas lo tenga". NO inventes plato.`;
+  const proteinas = (menu.proteinas_dia ?? [])
+    .filter((p) => p.disponible !== false)
+    .map((p) => `- ${p.nombre}`)
+    .join('\n');
+  if (!proteinas) {
+    return `HOY (${dia}): NO HAY MENÚ DEFINIDO. Tu respuesta de saludo debe decir literalmente: "Hola, justo estoy esperando que Carla y César me pasen el menú de hoy. Te respondo apenas lo tenga". NO inventes.`;
   }
-  const agregados = menu.agregados_posibles.join(', ');
-  const jugo = menu.jugos_posibles.join(', ');
-  return `HOY (${dia}) HAY:
-- Plato del día: ${plato.nombre} — ${plato.descripcion}
-- Combo $${menu.plato_estandar.precio} CLP = plato del día + agregado a elección + jugo natural
-- Agregados disponibles: ${agregados}
-- Jugo: ${jugo}`;
+  const incluidos = (menu.agregados_incluidos ?? []).join(', ');
+  const extras = (menu.extras_pagados ?? [])
+    .map((e) => `${e.nombre} ($${e.precio})`)
+    .join(', ') || '(ninguno)';
+  const incluyeN = menu.plato_estandar?.incluye_agregados ?? 2;
+  return `HOY (${dia}) — menú estándar (fallback, sin menú del día publicado):
+- Un menú $${menu.plato_estandar.precio} = proteína del día + ${incluyeN} agregados + jugo natural.
+- Proteínas:
+${proteinas}
+- Agregados incluidos (elegí ${incluyeN}): ${incluidos}
+- Extras opcionales (se cobran aparte): ${extras}
+- 3er agregado o doble: +$${menu.extra_3er_agregado ?? 2000} c/u.`;
 }
 
 function buildSaludoEjemplo(activeMenu, fallbackMenu) {
   if (activeMenu) {
-    let agregadosStr;
-    if (activeMenu.aggregates.length === 0) {
-      agregadosStr = '(sin agregados hoy)';
-    } else if (activeMenu.aggregates.length === 1) {
-      agregadosStr = `Agregado de hoy: ${activeMenu.aggregates[0]}.`;
-    } else {
-      agregadosStr = `Agregados de hoy: ${activeMenu.aggregates.join(' y ')}.`;
-    }
-    let especialesStr = '';
-    const especialesActivos = activeMenu.specials.filter((s) => s.active);
-    if (especialesActivos.length > 0) {
-      especialesStr =
-        '\n\nEspeciales del día:\n' +
-        especialesActivos.map((s) => `🍽️ ${s.name} — $${s.price}`).join('\n');
-    }
-    const platoDescripcion =
-      activeMenu.aggregates.length === 0
-        ? `${activeMenu.protein} + jugo natural — $${activeMenu.price_typical}`
-        : `${activeMenu.protein} con agregado + jugo natural — $${activeMenu.price_typical}`;
+    const proteinas = activeMenu.proteinas_dia
+      .filter((p) => p.disponible !== false)
+      .map((p) => `• ${p.nombre}`)
+      .join('\n');
+    const incluidos = activeMenu.agregados_incluidos.join(', ');
+    const extras = activeMenu.extras_pagados ?? [];
+    const extrasStr = extras.length
+      ? '\n\n➕ Extras opcionales ($2.000 c/u): ' + extras.map((e) => e.nombre).join(', ')
+      : '';
     return `¡Hola! ¿Cómo estás? Hoy en El Sazón de Carla y César tenemos:
 
-🍽️ ${platoDescripcion}
+🍽️ Proteínas del día:
+${proteinas}
 
-${agregadosStr}${especialesStr}
+Cada menú ($${activeMenu.price_typical}) incluye 2 agregados a elección + jugo natural.
+Agregados: ${incluidos}.${extrasStr}
 
 ¿Qué te gustaría pedir?`;
   }
-  return `¡Hola! ¿Cómo estás? Hoy en El Sazón de Carla y César tenemos:
-
-🍽️ Carne mechada con agregado a elección + jugo natural — $7.000
-
-Agregados disponibles: puré, arroz, ensalada, papas, porotos.
-
-¿Qué te gustaría pedir?`;
+  return `¡Hola! ¿Cómo estás? Hoy en El Sazón de Carla y César tenemos comida casera. Decime qué buscás y armamos tu menú.`;
 }
 
 function systemPrompt(menu) {
