@@ -18,6 +18,7 @@
   "extra_3er_agregado": 2000,
   "extra_doble_agregado": 2000,
   "permite_modificaciones_libres": true,
+  "bebida_incluida": ["Jugo natural", "Consomé"],
   "datos_transferencia": {
     "configurado": false,
     "texto": "PENDIENTE — Carla y César deben pasar los datos reales de transferencia (banco, tipo de cuenta, número, titular, RUT)."

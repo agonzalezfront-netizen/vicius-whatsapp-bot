@@ -115,6 +115,13 @@ export function setActiveMenu(payload) {
       .map((s) => ({ nombre: s.name.trim(), precio: s.price }));
   }
 
+  // Bebida incluida (gratis, el cliente elige 1). Default jugo natural si no viene.
+  const bebidas = (Array.isArray(payload.bebida_incluida) && payload.bebida_incluida.length
+    ? payload.bebida_incluida
+    : ['Jugo natural'])
+    .map((b) => String(b).trim())
+    .filter(Boolean);
+
   activeMenu = {
     id: `menu_${randomUUID().slice(0, 8)}`,
     day_label: payload.day_label.trim(),
@@ -123,6 +130,7 @@ export function setActiveMenu(payload) {
     proteinas_dia: proteinas,
     agregados_incluidos: incluidos,
     extras_pagados: extras,
+    bebida_incluida: bebidas,
     price_typical: payload.price_typical ?? 7000,
     published_at: payload.published_at,
     received_at: new Date().toISOString(),
@@ -141,12 +149,14 @@ export function renderActiveMenuForPrompt(menu) {
   const extras = (menu.extras_pagados ?? [])
     .map((e) => `${e.nombre} ($${e.precio})`)
     .join(', ') || '(ninguno hoy)';
+  const bebidas = (menu.bebida_incluida ?? ['Jugo natural']).join(' o ');
 
   return `MENÚ DEL DÍA (publicado ${menu.published_at} — ${menu.day_label}, ${menu.day_name})
-- Un menú $${menu.price_typical} = proteína del día + 2 agregados a elección + jugo natural.
+- Un menú $${menu.price_typical} = proteína del día + 2 agregados a elección + 1 bebida incluida.
 - Proteínas de hoy:
 ${proteinas}
 - Agregados incluidos (elegí 2): ${incluidos}
+- Bebida incluida (GRATIS, elegí 1): ${bebidas}
 - Extras opcionales (se cobran aparte): ${extras}
 - 3er agregado o doble del mismo agregado: +$2.000 c/u.
 

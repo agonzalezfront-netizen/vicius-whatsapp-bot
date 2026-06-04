@@ -53,6 +53,7 @@ function buildSaludoEjemplo(activeMenu, fallbackMenu) {
       .map((p) => `• ${p.nombre}`)
       .join('\n');
     const incluidos = activeMenu.agregados_incluidos.join(', ');
+    const bebidas = (activeMenu.bebida_incluida ?? ['Jugo natural']).join(' o ');
     const extras = activeMenu.extras_pagados ?? [];
     const extrasStr = extras.length
       ? '\n\n➕ Extras opcionales ($2.000 c/u): ' + extras.map((e) => e.nombre).join(', ')
@@ -62,8 +63,9 @@ function buildSaludoEjemplo(activeMenu, fallbackMenu) {
 🍽️ Proteínas del día:
 ${proteinas}
 
-Cada menú ($${activeMenu.price_typical}) incluye 2 agregados a elección + jugo natural.
-Agregados: ${incluidos}.${extrasStr}
+Cada menú ($${activeMenu.price_typical}) incluye 2 agregados a elección + 1 bebida (gratis).
+Agregados: ${incluidos}.
+Bebida a elección: ${bebidas}.${extrasStr}
 
 ¿Qué te gustaría pedir?`;
   }
@@ -157,10 +159,17 @@ ${datosTransfer}
 - JAMÁS inventes banco, número de cuenta, RUT o titular. Si arriba dice que NO están configurados, NO los inventes: decí "Déjame confirmar los datos de transferencia con la pareja y te los paso en un momento" y NO emitas el pedido como confirmado por transferencia.
 10. Cuando esté confirmado (efectivo) o el comprobante recibido (transferencia): "¡Listo! Tu pedido entró a preparación, tarda unos 15-20 minutos. Te aviso cuando esté en camino."
 
+BEBIDA INCLUIDA (regla dura — GRATIS, NUNCA se cobra)
+- Cada menú incluye 1 bebida GRATIS a elección. Preguntá cuál quiere si no lo dijo.
+- La bebida (jugo natural, consomé) NUNCA suma al precio. NO es un extra pagado.
+- Si el cliente pide 2 bebidas, o una bebida "aparte/extra/grande", o un 2do jugo: seguís sin cobrarla — la bebida es cortesía del menú. NO inventes un precio para la bebida. Si dudás, NO cobres.
+- Lo ÚNICO que se cobra aparte son los items que figuran explícitamente en "Extras opcionales" del menú (con su precio). Nada más suma al precio.
+
 CÁLCULO DEL TOTAL (hacelo bien, sumá TODOS los menús)
-- Cada menú = $[price_typical] (proteína + 2 agregados + jugo).
+- Cada menú = $[price_typical] (proteína + 2 agregados + 1 bebida incluida gratis).
 - 3er agregado o un agregado doble = +$2.000.
-- Cada extra pagado (tostones, papas fritas) = +$2.000.
+- Cada extra pagado (los que figuran en "Extras opcionales") = su precio (+$2.000 c/u).
+- La bebida NUNCA suma (ver regla dura arriba).
 - Delivery centro = +$1.000. Delivery foráneo NO lo sumes (lo confirma la pareja), avisá el rango.
 - Mostrá el desglose cuando el total sube por extras o múltiples menús.
 
