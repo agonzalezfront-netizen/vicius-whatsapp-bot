@@ -98,7 +98,7 @@ export function startQRServer(logger, port = parseInt(process.env.PORT ?? '8080'
         const menu = setActiveMenu(body);
         const cleared = clearAllHistories();
         logger.info(
-          { id: menu.id, day: menu.day_label, protein: menu.protein, aggregates: menu.aggregates.length, histories_cleared: cleared },
+          { id: menu.id, day: menu.day_label, proteinas: menu.proteinas_dia.length, agregados: menu.agregados_incluidos.length, histories_cleared: cleared },
           '✅ menú activo publicado + history limpiada',
         );
         jsonResponse(res, 200, {

@@ -90,7 +90,7 @@ async function bootstrap() {
   }
 
   menu = loadMenu();
-  logger.info({ platos: menu.platos_fuertes_rotativos.length }, 'menu cargado');
+  logger.info({ proteinas: (menu.proteinas_dia ?? []).length }, 'menu cargado');
 
   startQRServer(logger);
 
