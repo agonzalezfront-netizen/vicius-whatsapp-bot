@@ -168,7 +168,7 @@ export function renderActiveMenuForPrompt(menu) {
 - Proteínas de hoy:
 ${proteinas}
 - Agregados incluidos (elegí 2): ${incluidos}
-- Bebida incluida (GRATIS, elegí 1): ${bebidas}
+- Incluido gratis (elegí 1, sin costo — nombralo por su nombre, NO "bebida"): ${bebidas}
 - Extras opcionales (se cobran aparte): ${extras}
 - 3er agregado o doble del mismo agregado: +$2.000 c/u.${especialesStr ? `
 - PLATOS ESPECIALES (precio propio; incluyen bebida gratis; los agregados se cobran $2.000 c/u):

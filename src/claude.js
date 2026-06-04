@@ -67,9 +67,9 @@ function buildSaludoEjemplo(activeMenu, fallbackMenu) {
 🍽️ Proteínas del día:
 ${proteinas}
 
-Cada menú ($${activeMenu.price_typical}) incluye 2 agregados a elección + 1 bebida (gratis).
+Cada menú ($${activeMenu.price_typical}) incluye 2 agregados a elección + 1 incluido gratis a elección.
 Agregados: ${incluidos}.
-Bebida a elección: ${bebidas}.${extrasStr}${especialesStr}
+Incluido gratis (elegí 1): ${bebidas}.${extrasStr}${especialesStr}
 
 ¿Qué te gustaría pedir?`;
   }
@@ -85,10 +85,15 @@ function systemPrompt(menu, sesion = 'nueva') {
   const saludoEjemplo = buildSaludoEjemplo(activeMenu, menu);
   const menuFallback = activeMenu ? '' : `\n\n${renderMenuForPrompt(menu)}`;
 
+  // Datos de transferencia: SIEMPRE de env var (NO en el repo — es público y son
+  // datos bancarios del cliente). Fallback al menu.json solo si la env no está.
   const dt = menu.datos_transferencia ?? {};
-  const datosTransfer = dt.configurado
-    ? dt.texto
-    : 'NO CONFIGURADOS todavía. Carla y César aún no pasaron los datos reales de transferencia.';
+  const envTransfer = (process.env.SAZON_TRANSFER_INFO ?? '').trim();
+  const datosTransfer = envTransfer
+    ? envTransfer
+    : dt.configurado
+      ? dt.texto
+      : 'NO CONFIGURADOS todavía. Carla y César aún no pasaron los datos reales de transferencia.';
 
   let notaSesion = '';
   if (sesion === 'resaludo') {
@@ -169,11 +174,14 @@ ${datosTransfer}
 - JAMÁS inventes banco, número de cuenta, RUT o titular. Si arriba dice que NO están configurados, NO los inventes: decí "Déjame confirmar los datos de transferencia con la pareja y te los paso en un momento" y NO emitas el pedido como confirmado por transferencia.
 10. Cuando esté confirmado (efectivo) o el comprobante recibido (transferencia): "¡Listo! Tu pedido entró a preparación, tarda unos 15-20 minutos. Te aviso cuando esté en camino."
 
-BEBIDA INCLUIDA (regla dura — GRATIS, NUNCA se cobra)
-- Cada menú incluye 1 bebida GRATIS a elección. Preguntá cuál quiere si no lo dijo.
-- La bebida (jugo natural, consomé) NUNCA suma al precio. NO es un extra pagado.
-- Si el cliente pide 2 bebidas, o una bebida "aparte/extra/grande", o un 2do jugo: seguís sin cobrarla — la bebida es cortesía del menú. NO inventes un precio para la bebida. Si dudás, NO cobres.
-- WORDING en el resumen del pedido: escribí la bebida de forma natural, "un consomé gratis" / "un jugo gratis" (artículo + bebida + "gratis"). NUNCA "bebida gratis: consomé" ni "bebida incluida: X" — suena robótico.
+INCLUIDO GRATIS (regla dura — GRATIS, NUNCA se cobra)
+- Cada menú incluye 1 ítem GRATIS a elección (jugo natural, consomé, y a futuro otras opciones). Preguntá cuál quiere si no lo dijo.
+- Ese ítem incluido NUNCA suma al precio. NO es un extra pagado.
+- Si el cliente pide 2, o uno "aparte/extra/grande", o un 2do: seguís sin cobrarlo — es cortesía del menú. NO inventes un precio. Si dudás, NO cobres.
+- WORDING (🚨 cara al cliente):
+  - NUNCA uses la palabra "bebida" como etiqueta genérica — el consomé NO es una bebida (es un caldo). Nombrá cada incluido por su nombre real.
+  - En el resumen: "un consomé gratis" / "un jugo gratis" (artículo + nombre + "gratis"). NUNCA "bebida gratis: consomé".
+  - En el saludo/ofrecimiento: la categoría es "incluido gratis" o "a elección sin costo". Ej: "Incluido gratis a elección: jugo natural o consomé". NUNCA "una bebida gratis".
 - Lo ÚNICO que se cobra aparte son los items que figuran explícitamente en "Extras opcionales" del menú (con su precio). Nada más suma al precio.
 
 PLATOS ESPECIALES (si el menú del día los tiene) — reglas de precio (🚨 afecta el cobro)
