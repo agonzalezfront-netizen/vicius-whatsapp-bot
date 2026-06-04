@@ -72,6 +72,8 @@ export function startQRServer(logger, port = parseInt(process.env.PORT ?? '8080'
       jsonResponse(res, 200, {
         status: connectionStatus,
         hasQR: !!currentQR,
+        commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? 'dev').slice(0, 7),
+        build: 'pedido-carrito-v1',
         active_menu: m ? { id: m.id, day_label: m.day_label, published_at: m.published_at } : null,
       });
       return;
