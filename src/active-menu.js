@@ -171,7 +171,7 @@ ${proteinas}
 - Bebida incluida (GRATIS, elegí 1): ${bebidas}
 - Extras opcionales (se cobran aparte): ${extras}
 - 3er agregado o doble del mismo agregado: +$2.000 c/u.${especialesStr ? `
-- PLATOS ESPECIALES (pedido único, precio propio, SIN agregados ni bebida incluida):
+- PLATOS ESPECIALES (precio propio; incluyen bebida gratis; los agregados se cobran $2.000 c/u):
 ${especialesStr}` : ''}
 
 REGLA PARA EL BOT: usá estos datos exactos del menú del día. Ignorá el menú de fallback.`;
