@@ -1,5 +1,6 @@
 import { generarRespuesta } from './claude.js';
 import { estaAbierto, mensajeCerrado } from './horario.js';
+import { crearPedido, subirComprobante } from './pedidos-client.js';
 
 const HISTORY_MAX_TURNS = parseInt(process.env.HISTORY_MAX_TURNS ?? '12', 10);
 const JITTER_MIN = parseInt(process.env.JITTER_MIN_MS ?? '800', 10);
@@ -17,6 +18,11 @@ const histories = new Map();
 
 // jid → timestamp (ms) de la última interacción del cliente. Para gestión de sesión.
 const lastInteraction = new Map();
+
+// jid → pedidoId del pedido en curso esperando comprobante de transferencia.
+// En memoria (v0.1): si el container reinicia entre "pedido confirmado" y "llega
+// comprobante", se pierde el link. Ventana de minutos, aceptable para piloto.
+const pedidosEnCurso = new Map();
 
 // jid → timestamp (ms) de la última intervención manual del dueño en ese chat.
 // Mientras Date.now() - ts < OWNER_PAUSE_MS, el bot NO responde a ese cliente.
@@ -142,14 +148,39 @@ export async function handleMessage({ sock, logger, menu, msg }) {
     return;
   }
 
-  const userText = extractText(msg);
-  if (!userText) {
-    logger.debug({ jid }, 'mensaje sin texto, ignorado');
+  if (isOwnerPaused(jid)) {
+    logger.info({ jid }, 'cliente en pausa por intervención del dueño — bot no responde');
     return;
   }
 
-  if (isOwnerPaused(jid)) {
-    logger.info({ jid }, 'cliente en pausa por intervención del dueño — bot no responde');
+  // ¿Es una imagen y hay un pedido en curso esperando comprobante? Subirla.
+  if (msg.message?.imageMessage && pedidosEnCurso.has(jid)) {
+    const pedidoId = pedidosEnCurso.get(jid);
+    try {
+      const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
+      const buffer = await downloadMediaMessage(msg, 'buffer', {});
+      const mime = msg.message.imageMessage.mimetype ?? 'image/jpeg';
+      await subirComprobante(pedidoId, buffer, mime);
+      pedidosEnCurso.delete(jid);
+      lastInteraction.set(jid, Date.now());
+      await sock.readMessages([msg.key]);
+      await sleep(jitterDelay());
+      await sendBotMessage(sock, jid, {
+        text: '¡Listo! Recibí tu comprobante. Tu pedido entró a preparación, tarda unos 15-20 minutos. Te aviso cuando esté en camino. 🍽️',
+      });
+      logger.info({ jid, pedidoId }, '🧾 comprobante subido + pedido a preparación');
+    } catch (err) {
+      logger.error({ jid, pedidoId, err: err.message }, 'subirComprobante FALLA');
+      await sendBotMessage(sock, jid, {
+        text: 'Recibí tu imagen pero tuve un problema al procesarla. Déjame consultarle a la pareja.',
+      });
+    }
+    return;
+  }
+
+  const userText = extractText(msg);
+  if (!userText) {
+    logger.debug({ jid }, 'mensaje sin texto, ignorado');
     return;
   }
 
@@ -186,8 +217,24 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   const { limpio, pedido } = extraerPedido(respuesta);
   respuesta = limpio;
   if (pedido) {
-    // En Bloque 4 esto hace POST al wizard. Por ahora solo logueamos.
-    logger.info({ jid, total: pedido.total, metodo: pedido.metodo_pago, items: pedido.items?.length }, '🧾 pedido confirmado (parse OK)');
+    try {
+      const res = await crearPedido({
+        cliente_jid: jid,
+        cliente_nombre: senderName,
+        items: pedido.items,
+        total: pedido.total,
+        metodo_pago: pedido.metodo_pago,
+        vuelto: pedido.vuelto ?? null,
+        tipo: pedido.tipo,
+        direccion: pedido.direccion ?? null,
+        status: pedido.metodo_pago === 'transferencia' ? 'esperando_comprobante' : 'validado',
+      });
+      // Si es transferencia, guardamos el link jid→pedidoId para asociar el comprobante entrante.
+      if (pedido.metodo_pago === 'transferencia') pedidosEnCurso.set(jid, res.id);
+      logger.info({ jid, pedidoId: res.id, status: res.status }, '🧾 pedido creado en wizard');
+    } catch (err) {
+      logger.error({ jid, err: err.message }, 'crearPedido FALLA (el cliente igual recibe su confirmación)');
+    }
   }
 
   await sleep(jitterDelay());
