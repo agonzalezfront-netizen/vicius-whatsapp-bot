@@ -106,6 +106,40 @@ function evaluarSesion(jid, now) {
   return 'continua';
 }
 
+function formatCLP(n) {
+  return '$' + Math.round(n).toLocaleString('es-CL');
+}
+
+// CÁLCULO DETERMINISTA: el LLM no suma. Declara las líneas de precio en
+// <<CALC>>[7000,2000,...]<<FIN>> y escribe "{{TOTAL}}" donde va el monto.
+// Acá sumamos el array, reemplazamos {{TOTAL}}, recortamos el bloque, y
+// devolvemos { limpio, total } (total = número o null si no hubo <<CALC>>).
+function procesarCalc(texto) {
+  const m = texto.match(/<<CALC>>([\s\S]*?)<<FIN>>/);
+  let total = null;
+  let limpio = texto;
+  if (m) {
+    try {
+      const arr = JSON.parse(m[1].trim());
+      if (Array.isArray(arr)) {
+        total = arr.reduce((a, x) => a + (Number(x) || 0), 0);
+      }
+    } catch {
+      total = null;
+    }
+    limpio = limpio.replace(/<<CALC>>[\s\S]*?<<FIN>>/g, '').trim();
+  }
+  // Reemplazar el placeholder {{TOTAL}} por el monto (o quitarlo si no hay cálculo).
+  if (total !== null) {
+    limpio = limpio.replace(/\{\{TOTAL\}\}/g, formatCLP(total));
+  } else {
+    limpio = limpio.replace(/\{\{TOTAL\}\}/g, '').trim();
+  }
+  // Colapsar saltos de línea triples que deja el bloque recortado.
+  limpio = limpio.replace(/\n{3,}/g, '\n\n');
+  return { limpio, total };
+}
+
 // Recorta el bloque <<PEDIDO>>...<<FIN>> del texto (el cliente NO lo ve) y
 // devuelve { limpio, pedido } con el JSON parseado (o null si no hay/no parsea).
 function extraerPedido(texto) {
@@ -213,16 +247,24 @@ export async function handleMessage({ sock, logger, menu, msg }) {
     respuesta = 'Disculpa, tuve un problema técnico. Déjame consultarle a la pareja y vuelvo en un ratito.';
   }
 
+  // CÁLCULO DETERMINISTA: sumar el <<CALC>> y reemplazar {{TOTAL}} ANTES de
+  // mostrar nada al cliente (el LLM no suma — ver claude.js). totalCalc es el
+  // total real del carrito según el código, no según el modelo.
+  const calc = procesarCalc(respuesta);
+  respuesta = calc.limpio;
+
   // El cliente NO debe ver el bloque <<PEDIDO>>. Recortarlo siempre.
   const { limpio, pedido } = extraerPedido(respuesta);
   respuesta = limpio;
   if (pedido) {
+    // El total del pedido es el calculado por código (si hubo <<CALC>>), no el del LLM.
+    const totalPedido = calc.total !== null ? calc.total : pedido.total;
     try {
       const res = await crearPedido({
         cliente_jid: jid,
         cliente_nombre: senderName,
         items: pedido.items,
-        total: pedido.total,
+        total: totalPedido,
         metodo_pago: pedido.metodo_pago,
         vuelto: pedido.vuelto ?? null,
         tipo: pedido.tipo,
