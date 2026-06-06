@@ -27,6 +27,6 @@ export function renderMenuForPrompt(menu) {
 ${proteinas}
 - Agregados incluidos (elegí ${incluyeN}): ${incluidos}
 - Extras opcionales (se cobran aparte): ${extras}
-- 3er agregado o doble del mismo agregado: +$${menu.extra_3er_agregado ?? 2000} c/u.
+- Los primeros 2 agregados son gratis (aunque se repitan). Del 3º en adelante, +$${menu.extra_3er_agregado ?? 2000} c/u.
 - Pago: ${pago}.`;
 }
