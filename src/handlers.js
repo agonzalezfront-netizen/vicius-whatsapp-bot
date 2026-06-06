@@ -1,6 +1,7 @@
 import { generarRespuesta } from './claude.js';
 import { estaAbierto, mensajeCerrado } from './horario.js';
 import { crearPedido, subirComprobante } from './pedidos-client.js';
+import { getActiveMenu } from './active-menu.js';
 
 const HISTORY_MAX_TURNS = parseInt(process.env.HISTORY_MAX_TURNS ?? '12', 10);
 const JITTER_MIN = parseInt(process.env.JITTER_MIN_MS ?? '800', 10);
@@ -14,10 +15,28 @@ const OWNER_PAUSE_MS = parseInt(process.env.OWNER_PAUSE_MS ?? String(60 * 60 * 1
 const SESSION_MS = parseInt(process.env.SESSION_MS ?? String(45 * 60 * 1000), 10);
 const TZ = process.env.TZ ?? 'America/Santiago';
 
+// ── FRENOS anti-loop / anti-abuso / anti-regateo (todos en código, no LLM) ──
+// Tope de turnos del bot por sesión: tras esto, derivar a humano. Anti-loop/troll.
+const MAX_TURNS_SESSION = parseInt(process.env.MAX_TURNS_SESSION ?? '30', 10);
+// Menciones de descuento/regateo antes de cortar y derivar (resuelve regateo-terco).
+const MAX_DESCUENTO = parseInt(process.env.MAX_DESCUENTO ?? '3', 10);
+// Rate-limit por número: máx N mensajes en la ventana. Anti-abuso/DoS.
+const RATE_MAX = parseInt(process.env.RATE_MAX ?? '12', 10);
+const RATE_WINDOW_MS = parseInt(process.env.RATE_WINDOW_MS ?? String(60 * 1000), 10);
+// Cuánto queda pausado el bot tras dispararse un freno (deriva al humano).
+const FRENO_PAUSE_MS = parseInt(process.env.FRENO_PAUSE_MS ?? String(30 * 60 * 1000), 10);
+// Detección heurística de regateo/pedido de descuento en el texto del cliente.
+const REGATEO_RE = /descuent|rebaj|m[áa]s barat|mas barat|haceme precio|hacem[eé] un precio|me lo dej[áa]s?|baj[áa] el precio|menos plata|2x1|2 x 1|promo|oferta|regal|gratis el|precio especial|tarif/i;
+
 const histories = new Map();
 
 // jid → timestamp (ms) de la última interacción del cliente. Para gestión de sesión.
 const lastInteraction = new Map();
+
+// Frenos: contadores por jid (se resetean al cambiar de sesión/cruce de día).
+const turnCount = new Map();       // turnos del bot en la sesión
+const descuentoCount = new Map();  // menciones de descuento en la sesión
+const rateLog = new Map();         // jid → timestamps de mensajes recientes (rate-limit)
 
 // jid → pedidoId del pedido en curso esperando comprobante de transferencia.
 // En memoria (v0.1): si el container reinicia entre "pedido confirmado" y "llega
@@ -96,14 +115,75 @@ function fechaLocal(ts) {
 function evaluarSesion(jid, now) {
   const prev = lastInteraction.get(jid);
   lastInteraction.set(jid, now);
-  if (!prev) return 'nueva';
-  if (fechaLocal(prev) !== fechaLocal(now)) {
-    // cruce de día: el menú de ayer ya no existe → reset
-    histories.delete(jid);
+  if (!prev) {
+    resetFrenos(jid);
     return 'nueva';
   }
-  if (now - prev > SESSION_MS) return 'resaludo';
+  if (fechaLocal(prev) !== fechaLocal(now)) {
+    // cruce de día: el menú de ayer ya no existe → reset (incluye frenos)
+    histories.delete(jid);
+    resetFrenos(jid);
+    return 'nueva';
+  }
+  if (now - prev > SESSION_MS) {
+    // sesión nueva tras gap largo → reset de contadores de frenos
+    resetFrenos(jid);
+    return 'resaludo';
+  }
   return 'continua';
+}
+
+function resetFrenos(jid) {
+  turnCount.set(jid, 0);
+  descuentoCount.set(jid, 0);
+}
+
+// Rate-limit por número: registra el mensaje y devuelve true si está dentro del
+// límite, false si lo excede (en esa ventana móvil).
+function pasaRateLimit(jid, now) {
+  const arr = (rateLog.get(jid) ?? []).filter((t) => now - t < RATE_WINDOW_MS);
+  arr.push(now);
+  rateLog.set(jid, arr);
+  return arr.length <= RATE_MAX;
+}
+
+// Activa un freno: pausa el bot para ese jid (deriva al humano) y devuelve el
+// mensaje de derivación a enviar (una sola vez).
+function dispararFreno(jid, motivo, logger) {
+  pausedJids.set(jid, Date.now());
+  logger.warn({ jid, motivo }, '🛑 freno disparado — bot pausado, derivado a humano');
+}
+
+const normaliza = (s) =>
+  String(s ?? '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim();
+
+// Defensa en profundidad (Fix 1): devuelve la lista de nombres de ítems del
+// pedido que NO matchean el menú activo habilitado (proteínas, agregados,
+// extras, especiales). Normaliza acentos/mayúsculas. Si no hay menú activo,
+// no valida (devuelve []). Es telemetría — no bloquea el pedido.
+function validarItemsPedido(items) {
+  const menu = getActiveMenu();
+  if (!menu || !Array.isArray(items)) return [];
+  const proteinas = new Set((menu.proteinas_dia ?? []).map((p) => normaliza(p.nombre)));
+  const agregados = new Set((menu.agregados_incluidos ?? []).map(normaliza));
+  const extras = new Set((menu.extras_pagados ?? []).map((e) => normaliza(e.nombre)));
+  const especiales = new Set((menu.platos_especiales ?? []).map((e) => normaliza(e.nombre)));
+  const fuera = [];
+  for (const it of items) {
+    const prot = normaliza(it.proteina);
+    if (prot && !proteinas.has(prot) && !especiales.has(prot)) fuera.push(it.proteina);
+    for (const a of it.agregados ?? []) {
+      if (a && !agregados.has(normaliza(a))) fuera.push(a);
+    }
+    for (const x of it.extras ?? []) {
+      if (x && !extras.has(normaliza(x))) fuera.push(x);
+    }
+  }
+  return fuera;
 }
 
 function formatCLP(n) {
@@ -183,7 +263,14 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   }
 
   if (isOwnerPaused(jid)) {
-    logger.info({ jid }, 'cliente en pausa por intervención del dueño — bot no responde');
+    logger.info({ jid }, 'cliente en pausa por intervención del dueño / freno — bot no responde');
+    return;
+  }
+
+  // FRENO 3 — rate-limit por número (anti-abuso/DoS). Si el cliente excede el
+  // límite en la ventana, el bot deja de responderle (silencioso) hasta que baje.
+  if (!pasaRateLimit(jid, Date.now())) {
+    logger.warn({ jid }, '🛑 rate-limit excedido — mensaje ignorado');
     return;
   }
 
@@ -234,6 +321,37 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   const sesion = evaluarSesion(jid, Date.now());
   logger.info({ jid, sesion }, 'estado de sesión');
 
+  // FRENO 1 — contador de regateo. Si el cliente insiste con descuentos más de
+  // MAX_DESCUENTO veces, el bot deriva al humano y se pausa (el prompt solo no
+  // alcanza: el juez del QA exige una derivación formal "del sistema").
+  if (REGATEO_RE.test(userText)) {
+    const n = (descuentoCount.get(jid) ?? 0) + 1;
+    descuentoCount.set(jid, n);
+    if (n > MAX_DESCUENTO) {
+      dispararFreno(jid, 'regateo-insistente', logger);
+      await sleep(jitterDelay());
+      await sendBotMessage(sock, jid, {
+        text: 'Sobre el precio ya está todo dicho 🙂. Le aviso a Carla y César que querías hablar de eso y, si surge algo, te escriben. Por acá te ayudo con tu pedido al precio del menú cuando quieras.',
+      });
+      logger.info({ jid, descuento: n }, '🛑 freno regateo → derivado');
+      return;
+    }
+  }
+
+  // FRENO 2 — tope de turnos por sesión (anti-loop/troll). Tras MAX_TURNS_SESSION
+  // respuestas del bot en la sesión, deriva al humano y se pausa.
+  const turnos = (turnCount.get(jid) ?? 0) + 1;
+  turnCount.set(jid, turnos);
+  if (turnos > MAX_TURNS_SESSION) {
+    dispararFreno(jid, 'tope-turnos', logger);
+    await sleep(jitterDelay());
+    await sendBotMessage(sock, jid, {
+      text: 'Para no marearte con tantos mensajes, te dejo con Carla y César para que terminen tu pedido 🙂. Ya les avisé.',
+    });
+    logger.info({ jid, turnos }, '🛑 freno tope de turnos → derivado');
+    return;
+  }
+
   pushHistory(jid, 'user', userText);
   const history = getHistory(jid).slice(0, -1);
 
@@ -259,6 +377,11 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   if (pedido) {
     // El total del pedido es el calculado por código (si hubo <<CALC>>), no el del LLM.
     const totalPedido = calc.total !== null ? calc.total : pedido.total;
+    // FRENO 4 — defensa en profundidad: validar ítems del pedido contra el menú
+    // habilitado. NO bloquea (el matching de strings es frágil), pero loguea si
+    // el LLM dejó pasar algo fuera de menú, para detectar fugas de la regla dura.
+    const fuera = validarItemsPedido(pedido.items);
+    if (fuera.length) logger.warn({ jid, fuera }, '⚠️ pedido con ítems posiblemente fuera del menú (revisar)');
     try {
       const res = await crearPedido({
         cliente_jid: jid,
