@@ -286,10 +286,12 @@ export async function handleMessage({ sock, logger, menu, msg }) {
       lastInteraction.set(jid, Date.now());
       await sock.readMessages([msg.key]);
       await sleep(jitterDelay());
+      // B1: el bot NO confirma el pago. Queda pendiente de validación humana.
+      // MSG-1 (spec gestor de pedidos): "en proceso de confirmación", NO "entró a cocina".
       await sendBotMessage(sock, jid, {
-        text: '¡Listo! Recibí tu comprobante. Tu pedido entró a preparación, tarda unos 15-20 minutos. Te aviso cuando esté en camino. 🍽️',
+        text: '¡Recibí tu comprobante! 🙌 Tu pago está en proceso de confirmación. Apenas la pareja lo valide te aviso y tu pedido entra a cocina. Es un ratito 🙂',
       });
-      logger.info({ jid, pedidoId }, '🧾 comprobante subido + pedido a preparación');
+      logger.info({ jid, pedidoId }, '🧾 comprobante subido → pendiente_validacion (NO confirmado, espera validación humana)');
     } catch (err) {
       logger.error({ jid, pedidoId, err: err.message }, 'subirComprobante FALLA');
       await sendBotMessage(sock, jid, {
