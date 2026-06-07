@@ -90,7 +90,7 @@ function isOwnerPaused(jid) {
   return true;
 }
 
-async function sendBotMessage(sock, jid, payload) {
+export async function sendBotMessage(sock, jid, payload) {
   const sent = await sock.sendMessage(jid, payload);
   rememberBotSentId(sent?.key?.id);
   return sent;

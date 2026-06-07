@@ -39,6 +39,28 @@ export async function guardarMenuActual(payload) {
   return res.json();
 }
 
+// Gestor de pedidos: el bot consulta las notificaciones pendientes (validado/
+// rechazado) que la dueña generó en la app, las manda al cliente y las marca.
+export async function getNotifPendientes() {
+  const res = await fetch(`${WIZARD_BASE}/api/notif-pendientes`, {
+    method: 'GET',
+    headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
+  });
+  if (!res.ok) throw new Error(`getNotifPendientes HTTP ${res.status}`);
+  const data = await res.json();
+  return data.pendientes ?? [];
+}
+
+export async function marcarNotificado(pedidoId) {
+  const res = await fetch(`${WIZARD_BASE}/api/pedidos/${pedidoId}/notificado`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: WIZARD_AUTH, 'User-Agent': UA },
+    body: '{}',
+  });
+  if (!res.ok) throw new Error(`marcarNotificado HTTP ${res.status}`);
+  return res.json();
+}
+
 export async function cargarMenuActual() {
   const res = await fetch(`${WIZARD_BASE}/api/menu-actual`, {
     method: 'GET',

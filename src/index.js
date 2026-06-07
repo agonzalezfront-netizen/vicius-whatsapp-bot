@@ -13,6 +13,11 @@ import { handleMessage } from './handlers.js';
 import { startQRServer, setQR, clearQR, setStatus } from './qr-server.js';
 import { cargarMenuActual } from './pedidos-client.js';
 import { validateMenuPayload, setActiveMenu } from './active-menu.js';
+import { startNotifPoller } from './notif-poller.js';
+
+// Socket Baileys vigente (cambia en reconexiones). El notif-poller lo usa para
+// mandar los mensajes salientes (MSG-2/MSG-3) al cliente.
+let currentSock = null;
 
 const logger = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -67,6 +72,7 @@ async function connectSocket() {
       clearQR();
       setStatus('open');
       backoffMs = 2000;
+      currentSock = sock; // el notif-poller usa el sock vigente
       logger.info({ jid: sock.user?.id }, '✅ WhatsApp conectado');
     } else if (connection === 'connecting') {
       setStatus('connecting');
@@ -116,6 +122,9 @@ async function bootstrap() {
   startQRServer(logger);
 
   await connectSocket();
+
+  // Gestor de pedidos: polling de notificaciones validado/rechazado → MSG-2/MSG-3.
+  startNotifPoller({ getSock: () => currentSock, logger });
 
   process.on('SIGTERM', () => {
     logger.info('SIGTERM, exit');
