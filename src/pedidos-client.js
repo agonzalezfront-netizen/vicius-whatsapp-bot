@@ -71,6 +71,22 @@ export async function cargarMenuActual() {
   return data.menu ?? null;
 }
 
+// Fallback robusto: `pedidosEnCurso` (Map in-memory en handlers.js) se pierde en
+// cada redeploy de Railway, así que si el cliente manda el comprobante después de
+// un redeploy, el link jid→pedidoId desaparece. Acá lo reconstruimos preguntando
+// al wizard (DB persistente) por el pedido MÁS RECIENTE de este jid que sigue
+// esperando comprobante. El backend ya ordena por created_at DESC.
+export async function buscarPedidoEsperandoComprobante(jid) {
+  const res = await fetch(`${WIZARD_BASE}/api/pedidos?status=esperando_comprobante`, {
+    method: 'GET',
+    headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
+  });
+  if (!res.ok) throw new Error(`buscarPedidoEsperandoComprobante HTTP ${res.status}`);
+  const data = await res.json();
+  const delJid = (data.pedidos ?? []).filter((p) => p.cliente_jid === jid);
+  return delJid.length ? delJid[0].id : null;
+}
+
 export async function subirComprobante(pedidoId, buffer, mime) {
   const form = new FormData();
   const ext = mime?.includes('png') ? 'png' : 'jpg';

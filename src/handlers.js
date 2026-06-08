@@ -1,6 +1,6 @@
 import { generarRespuesta } from './claude.js';
 import { estaAbierto, mensajeCerrado } from './horario.js';
-import { crearPedido, subirComprobante } from './pedidos-client.js';
+import { crearPedido, subirComprobante, buscarPedidoEsperandoComprobante } from './pedidos-client.js';
 import { getActiveMenu } from './active-menu.js';
 
 const HISTORY_MAX_TURNS = parseInt(process.env.HISTORY_MAX_TURNS ?? '12', 10);
@@ -274,31 +274,48 @@ export async function handleMessage({ sock, logger, menu, msg }) {
     return;
   }
 
-  // ¿Es una imagen y hay un pedido en curso esperando comprobante? Subirla.
-  if (msg.message?.imageMessage && pedidosEnCurso.has(jid)) {
-    const pedidoId = pedidosEnCurso.get(jid);
-    try {
-      const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
-      const buffer = await downloadMediaMessage(msg, 'buffer', {});
-      const mime = msg.message.imageMessage.mimetype ?? 'image/jpeg';
-      await subirComprobante(pedidoId, buffer, mime);
-      pedidosEnCurso.delete(jid);
-      lastInteraction.set(jid, Date.now());
-      await sock.readMessages([msg.key]);
-      await sleep(jitterDelay());
-      // B1: el bot NO confirma el pago. Queda pendiente de validación humana.
-      // MSG-1 (spec gestor de pedidos): "en proceso de confirmación", NO "entró a cocina".
-      await sendBotMessage(sock, jid, {
-        text: '¡Recibí tu comprobante! 🙌\n\nTu pago quedó *en revisión*. Carla y César lo confirman a mano y, apenas esté validado, te aviso acá y tu pedido entra a cocina.\n\nEs un ratito 🙂',
-      });
-      logger.info({ jid, pedidoId }, '🧾 comprobante subido → pendiente_validacion (NO confirmado, espera validación humana)');
-    } catch (err) {
-      logger.error({ jid, pedidoId, err: err.message }, 'subirComprobante FALLA');
-      await sendBotMessage(sock, jid, {
-        text: 'Recibí tu imagen pero tuve un problema al procesarla 😕 Déjame avisarle a Carla y César y te ayudan enseguida.',
-      });
+  // ¿Es una imagen? Puede ser el comprobante de transferencia. El link jid→pedidoId
+  // (pedidosEnCurso) es in-memory y se PIERDE en cada redeploy de Railway → si el
+  // cliente manda la foto después de un redeploy, el link desaparece y la imagen no
+  // se asociaba (bug 2026-06-08). Fix: si no lo tenemos local, lo reconstruimos
+  // preguntando al wizard (DB persistente) por el pedido más reciente de este jid que
+  // sigue esperando comprobante. Así sobrevive redeploys.
+  if (msg.message?.imageMessage) {
+    let pedidoId = pedidosEnCurso.get(jid);
+    if (!pedidoId) {
+      try {
+        pedidoId = await buscarPedidoEsperandoComprobante(jid);
+        if (pedidoId) logger.info({ jid, pedidoId }, '🔁 link comprobante recuperado del wizard (pedidosEnCurso vacío tras redeploy)');
+      } catch (err) {
+        logger.warn({ jid, err: err.message }, 'no pude consultar pedido esperando comprobante en el wizard');
+      }
     }
-    return;
+    if (pedidoId) {
+      try {
+        const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
+        const buffer = await downloadMediaMessage(msg, 'buffer', {});
+        const mime = msg.message.imageMessage.mimetype ?? 'image/jpeg';
+        await subirComprobante(pedidoId, buffer, mime);
+        pedidosEnCurso.delete(jid);
+        lastInteraction.set(jid, Date.now());
+        await sock.readMessages([msg.key]);
+        await sleep(jitterDelay());
+        // B1: el bot NO confirma el pago. Queda pendiente de validación humana.
+        // MSG-1 (spec gestor de pedidos): "en proceso de confirmación", NO "entró a cocina".
+        await sendBotMessage(sock, jid, {
+          text: '¡Recibí tu comprobante! 🙌\n\nTu pago quedó *en revisión*. Carla y César lo confirman a mano y, apenas esté validado, te aviso acá y tu pedido entra a cocina.\n\nEs un ratito 🙂',
+        });
+        logger.info({ jid, pedidoId }, '🧾 comprobante subido → pendiente_validacion (NO confirmado, espera validación humana)');
+      } catch (err) {
+        logger.error({ jid, pedidoId, err: err.message }, 'subirComprobante FALLA');
+        await sendBotMessage(sock, jid, {
+          text: 'Recibí tu imagen pero tuve un problema al procesarla 😕 Déjame avisarle a Carla y César y te ayudan enseguida.',
+        });
+      }
+      return;
+    }
+    // Imagen sin ningún pedido esperando comprobante (ni local ni en el wizard) →
+    // no es un comprobante esperado. Cae al flujo normal (Claude) más abajo.
   }
 
   const userText = extractText(msg);
