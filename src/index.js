@@ -7,6 +7,8 @@ import {
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { loadMenu } from './menu.js';
 import { handleMessage } from './handlers.js';
@@ -95,6 +97,31 @@ async function bootstrap() {
   if (!process.env.ANTHROPIC_API_KEY) {
     logger.error('ANTHROPIC_API_KEY no seteada en env. Abortando.');
     process.exit(1);
+  }
+
+  // RE-PAIR COMPLETO one-shot (anti-Bad MAC). Si RESET_AUTH trae un token distinto al
+  // ya aplicado, borra TODO el auth-state (creds.json + TODAS las sesiones de libsignal)
+  // → fuerza un emparejamiento NUEVO con QR (device unlink + re-pair). Borrar solo las
+  // session files NO limpia el Bad MAC (confirmado en issues Baileys); por eso se borra
+  // el dir entero. Idempotente por token: cambiar el valor de RESET_AUTH fuerza otro
+  // re-pair; el mismo valor no repite (no loopea el QR). El marker vive en el volumen.
+  if (process.env.RESET_AUTH) {
+    const token = String(process.env.RESET_AUTH).trim();
+    const marker = path.join(AUTH_DIR, '.reset_token');
+    let lastToken = null;
+    try { lastToken = fs.readFileSync(marker, 'utf-8').trim(); } catch { /* sin marker */ }
+    if (lastToken !== token) {
+      try {
+        fs.rmSync(AUTH_DIR, { recursive: true, force: true });
+        fs.mkdirSync(AUTH_DIR, { recursive: true });
+        fs.writeFileSync(marker, token);
+        logger.warn({ token }, '🔄 RESET_AUTH: auth-state COMPLETO borrado (creds + sesiones) — se generará QR nuevo para re-pair');
+      } catch (e) {
+        logger.error({ err: e.message }, 'RESET_AUTH: falló al borrar el auth-state');
+      }
+    } else {
+      logger.info({ token }, 'RESET_AUTH ya aplicado para este token, se ignora (idempotente, sin loop de QR)');
+    }
   }
 
   menu = loadMenu();
