@@ -29,5 +29,5 @@ export function estaAbierto(menu, tz = process.env.TZ ?? 'America/Santiago') {
 }
 
 export function mensajeCerrado() {
-  return '¡Hola! Estamos cerrados ahora. Atendemos de lunes a sábado de 12 a 22 hs, y los domingos de 12 a 18 hs. Te respondemos cuando volvamos. ¡Gracias!';
+  return '¡Hola! 🙂 Ahora estamos cerrados.\n\n🕐 *Horario:*\n• Lunes a sábado: 12 a 22 hs\n• Domingos: 12 a 18 hs\n\nTe respondemos apenas volvamos. ¡Gracias!';
 }

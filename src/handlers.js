@@ -289,13 +289,13 @@ export async function handleMessage({ sock, logger, menu, msg }) {
       // B1: el bot NO confirma el pago. Queda pendiente de validación humana.
       // MSG-1 (spec gestor de pedidos): "en proceso de confirmación", NO "entró a cocina".
       await sendBotMessage(sock, jid, {
-        text: '¡Recibí tu comprobante! 🙌 Tu pago está en proceso de confirmación. Apenas la pareja lo valide te aviso y tu pedido entra a cocina. Es un ratito 🙂',
+        text: '¡Recibí tu comprobante! 🙌\n\nTu pago quedó *en revisión*. Carla y César lo confirman a mano y, apenas esté validado, te aviso acá y tu pedido entra a cocina.\n\nEs un ratito 🙂',
       });
       logger.info({ jid, pedidoId }, '🧾 comprobante subido → pendiente_validacion (NO confirmado, espera validación humana)');
     } catch (err) {
       logger.error({ jid, pedidoId, err: err.message }, 'subirComprobante FALLA');
       await sendBotMessage(sock, jid, {
-        text: 'Recibí tu imagen pero tuve un problema al procesarla. Déjame consultarle a la pareja.',
+        text: 'Recibí tu imagen pero tuve un problema al procesarla 😕 Déjame avisarle a Carla y César y te ayudan enseguida.',
       });
     }
     return;
@@ -333,7 +333,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
       dispararFreno(jid, 'regateo-insistente', logger);
       await sleep(jitterDelay());
       await sendBotMessage(sock, jid, {
-        text: 'Sobre el precio ya está todo dicho 🙂. Le aviso a Carla y César que querías hablar de eso y, si surge algo, te escriben. Por acá te ayudo con tu pedido al precio del menú cuando quieras.',
+        text: 'Sobre el precio ya está todo dicho 🙂 Le aviso a Carla y César que querías hablarlo; si surge algo, te escriben. Por acá te ayudo con tu pedido al precio del menú cuando quieras.',
       });
       logger.info({ jid, descuento: n }, '🛑 freno regateo → derivado');
       return;

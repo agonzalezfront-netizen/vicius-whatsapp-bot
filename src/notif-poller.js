@@ -5,13 +5,13 @@ const POLL_MS = parseInt(process.env.NOTIF_POLL_MS ?? '10000', 10);
 
 // MSG-2 (spec gestor de pedidos): pago validado → pasa a cocina.
 function msgValidado() {
-  return '¡Listo! ✅ Tu pago fue confirmado. Tu pedido entró a cocina, está listo en unos 15-20 minutos. Te aviso cuando vaya en camino 🍽️';
+  return '¡Pago confirmado! ✅\n\nTu pedido ya entró a cocina 🍽️ Está listo en unos *15-20 minutos*. Te aviso cuando vaya en camino.';
 }
 
 // MSG-3: pago rechazado → con la razón que eligió la dueña.
 function msgRechazado(razon) {
   const r = (razon || 'hubo un inconveniente con el comprobante').trim();
-  return `Hola 🙂 Hubo un problema con tu comprobante: ${r}. ¿Podrías revisarlo y reenviarlo? Si tenés alguna duda, Carla y César te ayudan enseguida 🙏`;
+  return `Hola 🙂 Tuvimos un problema con tu comprobante:\n\n_${r}_\n\n¿Podés revisarlo y reenviarlo? Si tenés alguna duda, Carla y César te ayudan enseguida 🙏`;
 }
 
 // Arranca el loop que consulta las notificaciones que la dueña generó en la app

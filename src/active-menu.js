@@ -164,14 +164,14 @@ export function renderActiveMenuForPrompt(menu) {
     : null;
 
   return `MENÚ DEL DÍA (publicado ${menu.published_at} — ${menu.day_label}, ${menu.day_name})
-- Un menú $${menu.price_typical} = proteína del día + 2 agregados a elección + 1 bebida incluida.
+- Un menú $${menu.price_typical} = 1 proteína del día + 2 acompañamientos a elección + 1 jugo o consomé.
 - Proteínas de hoy:
 ${proteinas}
-- Agregados incluidos (elegí 2): ${incluidos}
-- Incluido gratis (elegí 1, sin costo — nombralo por su nombre, NO "bebida"): ${bebidas}
+- Acompañamientos incluidos (elegí 2): ${incluidos}
+- Jugo o consomé (elegí 1, gratis — nombralo por su nombre, NO "bebida"): ${bebidas}
 - Extras opcionales (se cobran aparte): ${extras}
-- Los primeros 2 agregados son gratis (aunque se repitan, ej. doble puré = gratis). Del 3º en adelante, +$2.000 c/u.${especialesStr ? `
-- PLATOS ESPECIALES (precio propio; incluyen bebida gratis; los agregados se cobran $2.000 c/u):
+- Los primeros 2 acompañamientos son gratis (aunque se repitan, ej. doble puré = gratis). Del 3º en adelante, +$2.000 c/u.${especialesStr ? `
+- PLATOS ESPECIALES (precio propio; incluyen 1 jugo o consomé gratis; los acompañamientos se cobran $2.000 c/u):
 ${especialesStr}` : ''}
 
 REGLA PARA EL BOT: usá estos datos exactos del menú del día. Ignorá el menú de fallback.`;
