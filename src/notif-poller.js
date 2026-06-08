@@ -14,6 +14,27 @@ function msgRechazado(razon) {
   return `Hola 🙂 Tuvimos un problema con tu comprobante:\n\n_${r}_\n\n¿Podés revisarlo y reenviarlo? Si tenés alguna duda, Carla y César te ayudan enseguida 🙏`;
 }
 
+// Etapa en_camino (delivery): el pedido salió del local.
+function msgEnCamino() {
+  return '¡Tu pedido va en camino! 🛵 Llega en un ratito. ¡Que lo disfrutes!';
+}
+
+// Etapa listo (retiro): el pedido está pronto para retirar en el local.
+function msgListo() {
+  return '¡Tu pedido está listo! 🏠 Te esperamos para retirarlo cuando quieras.';
+}
+
+// Mapeo tipo de notificación (notif_pendiente del backend) → texto al cliente.
+function textoPara(p) {
+  switch (p.tipo) {
+    case 'validado': return msgValidado();
+    case 'rechazado': return msgRechazado(p.razon);
+    case 'en_camino': return msgEnCamino();
+    case 'listo': return msgListo();
+    default: return null; // tipo desconocido → no mandamos (se limpia el flag)
+  }
+}
+
 // Arranca el loop que consulta las notificaciones que la dueña generó en la app
 // (validar/rechazar) y manda el mensaje saliente al cliente por WhatsApp.
 // getSock() devuelve el socket Baileys vigente (puede cambiar en reconexiones) o
@@ -35,7 +56,13 @@ export function startNotifPoller({ getSock, logger }) {
         await marcarNotificado(p.id).catch(() => {});
         continue;
       }
-      const texto = p.tipo === 'validado' ? msgValidado() : msgRechazado(p.razon);
+      const texto = textoPara(p);
+      if (!texto) {
+        // Tipo de notif desconocido: limpiamos el flag para no loopear y seguimos.
+        logger.warn({ pedidoId: p.id, tipo: p.tipo }, 'notif-poller: tipo desconocido, se descarta');
+        await marcarNotificado(p.id).catch(() => {});
+        continue;
+      }
       try {
         await sendBotMessage(sock, p.cliente_jid, { text: texto });
         await marcarNotificado(p.id);
