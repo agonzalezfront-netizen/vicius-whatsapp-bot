@@ -112,10 +112,18 @@ async function bootstrap() {
     try { lastToken = fs.readFileSync(marker, 'utf-8').trim(); } catch { /* sin marker */ }
     if (lastToken !== token) {
       try {
-        fs.rmSync(AUTH_DIR, { recursive: true, force: true });
-        fs.mkdirSync(AUTH_DIR, { recursive: true });
+        // AUTH_DIR es el MOUNTPOINT del volumen de Railway → no se puede borrar el dir
+        // en sí (rmSync del mountpoint falla con EBUSY/EPERM). Borramos su CONTENIDO
+        // (creds.json + todas las sesiones), dejando el mountpoint intacto.
+        if (fs.existsSync(AUTH_DIR)) {
+          for (const f of fs.readdirSync(AUTH_DIR)) {
+            fs.rmSync(path.join(AUTH_DIR, f), { recursive: true, force: true });
+          }
+        } else {
+          fs.mkdirSync(AUTH_DIR, { recursive: true });
+        }
         fs.writeFileSync(marker, token);
-        logger.warn({ token }, '🔄 RESET_AUTH: auth-state COMPLETO borrado (creds + sesiones) — se generará QR nuevo para re-pair');
+        logger.warn({ token }, '🔄 RESET_AUTH: contenido del auth-state borrado (creds + sesiones) — se generará QR nuevo para re-pair');
       } catch (e) {
         logger.error({ err: e.message }, 'RESET_AUTH: falló al borrar el auth-state');
       }
