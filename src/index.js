@@ -126,10 +126,25 @@ async function bootstrap() {
   // Gestor de pedidos: polling de notificaciones validado/rechazado → MSG-2/MSG-3.
   startNotifPoller({ getSock: () => currentSock, logger });
 
-  process.on('SIGTERM', () => {
-    logger.info('SIGTERM, exit');
+  // Cierre GRACEFUL (anti-corrupción de sesiones Signal). Causa raíz del "Bad MAC"
+  // 2026-06-08: matar el proceso mid-write durante un redeploy corrompe los archivos
+  // de session-state de libsignal (creds.json sobrevive, las sesiones por-contacto no)
+  // → mensajes posteriores de ese contacto fallan a descifrar (un check / no llegan).
+  // Issues Baileys: unclean shutdown corrompe el state. Mitigación: en SIGTERM cerramos
+  // el socket limpio y damos tiempo a que terminen las escrituras async del auth-state
+  // antes de salir, en vez de un process.exit(0) inmediato.
+  let cerrando = false;
+  async function shutdownGraceful(sig) {
+    if (cerrando) return;
+    cerrando = true;
+    logger.info({ sig }, 'cierre graceful — flush del auth-state para no corromper sesiones Signal');
+    try { currentSock?.end?.(undefined); } catch (e) { logger.warn({ err: e?.message }, 'sock.end falló'); }
+    // Margen para que las escrituras pendientes de useMultiFileAuthState terminen.
+    await new Promise((r) => setTimeout(r, 3000));
     process.exit(0);
-  });
+  }
+  process.on('SIGTERM', () => shutdownGraceful('SIGTERM'));
+  process.on('SIGINT', () => shutdownGraceful('SIGINT'));
 }
 
 bootstrap().catch((err) => {
