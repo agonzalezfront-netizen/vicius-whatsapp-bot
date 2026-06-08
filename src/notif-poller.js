@@ -54,8 +54,12 @@ export function startNotifPoller({ getSock, logger }) {
       // jid ausente o con formato inválido (ej. pedidos de prueba con "56988@...",
       // 5 dígitos) → enviar falla y se reintentaría en loop cada ciclo (spam de logs
       // 2026-06-08). Lo descartamos marcándolo notificado: no se puede avisar a un
-      // número que no existe. Un jid real es <8-15 dígitos>@s.whatsapp.net.
-      if (!p.cliente_jid || !/^\d{8,15}@s\.whatsapp\.net$/.test(p.cliente_jid)) {
+      // número que no existe. Aceptamos AMBOS formatos de WhatsApp:
+      //   - <8+ dígitos>@s.whatsapp.net (número clásico)
+      //   - <8+ dígitos>@lid           (LinkedID, formato nuevo — clientes reales lo usan;
+      //                                 el regex viejo solo aceptaba @s.whatsapp.net y por
+      //                                 eso descartaba las notifs de esos clientes — bug 2026-06-08)
+      if (!p.cliente_jid || !/^\d{8,}@(s\.whatsapp\.net|lid)$/.test(p.cliente_jid)) {
         logger.warn({ pedidoId: p.id, jid: p.cliente_jid }, 'notif-poller: jid ausente o inválido, descarto (no loopea)');
         await marcarNotificado(p.id).catch(() => {});
         continue;
