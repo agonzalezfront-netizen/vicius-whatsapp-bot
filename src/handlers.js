@@ -224,12 +224,15 @@ function procesarCalc(texto) {
 // devuelve { limpio, pedido } con el JSON parseado (o null si no hay/no parsea).
 function extraerPedido(texto) {
   const m = texto.match(/<<PEDIDO>>([\s\S]*?)<<FIN>>/);
-  if (!m) return { limpio: texto, pedido: null };
+  if (!m) return { limpio: texto, pedido: null, parseError: null };
   const limpio = texto.replace(/<<PEDIDO>>[\s\S]*?<<FIN>>/, '').trim();
   try {
-    return { limpio, pedido: JSON.parse(m[1].trim()) };
-  } catch {
-    return { limpio, pedido: null };
+    return { limpio, pedido: JSON.parse(m[1].trim()), parseError: null };
+  } catch (e) {
+    // FIX A (observabilidad): antes este catch era silencioso → no sabíamos si Haiku
+    // emitía el bloque con JSON malformado. Ahora devolvemos el bloque crudo + el error
+    // para loguearlo en el caller (bug 2026-06-08: pedido no creado, causa indistinguible).
+    return { limpio, pedido: null, parseError: { raw: m[1].trim(), err: e.message } };
   }
 }
 
@@ -288,6 +291,23 @@ export async function handleMessage({ sock, logger, menu, msg }) {
         if (pedidoId) logger.info({ jid, pedidoId }, '🔁 link comprobante recuperado del wizard (pedidosEnCurso vacío tras redeploy)');
       } catch (err) {
         logger.warn({ jid, err: err.message }, 'no pude consultar pedido esperando comprobante en el wizard');
+      }
+    }
+    if (!pedidoId) {
+      // FIX C (red de seguridad): no había pedido en esperando_comprobante (Haiku no emitió
+      // el <<PEDIDO>>, o el JSON no parseó). Creamos un pedido MÍNIMO ahora para que el
+      // comprobante NUNCA se pierda: entra al panel con el jid + la foto; la dueña completa
+      // los detalles con el cliente si faltan. (bug 2026-06-08: comprobante huérfano.)
+      try {
+        const res = await crearPedido({
+          cliente_jid: jid, cliente_nombre: null, items: [], total: null,
+          metodo_pago: 'transferencia', vuelto: null, tipo: null, direccion: null,
+          status: 'esperando_comprobante',
+        });
+        pedidoId = res.id;
+        logger.warn({ jid, pedidoId }, '🛟 red de seguridad: pedido mínimo creado al recibir comprobante (no había pedido emitido)');
+      } catch (err) {
+        logger.error({ jid, err: err.message }, 'red de seguridad: no pude crear el pedido mínimo para el comprobante');
       }
     }
     if (pedidoId) {
@@ -391,8 +411,14 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   respuesta = calc.limpio;
 
   // El cliente NO debe ver el bloque <<PEDIDO>>. Recortarlo siempre.
-  const { limpio, pedido } = extraerPedido(respuesta);
+  const { limpio, pedido, parseError } = extraerPedido(respuesta);
   respuesta = limpio;
+  if (parseError) {
+    logger.error(
+      { jid, raw: parseError.raw?.slice(0, 600), err: parseError.err },
+      '⚠️ <<PEDIDO>> emitido por Haiku pero el JSON NO parsea → pedido NO creado. Revisar el formato. (la red de seguridad creará el pedido al llegar el comprobante)',
+    );
+  }
   if (pedido) {
     // El total del pedido es el calculado por código (si hubo <<CALC>>), no el del LLM.
     const totalPedido = calc.total !== null ? calc.total : pedido.total;
