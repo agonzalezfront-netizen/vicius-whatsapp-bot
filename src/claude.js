@@ -256,8 +256,9 @@ REGLA DURA DEL COMPROBANTE (🚨 B1 — el bot NO confirma pagos)
 
 EMISIÓN DEL PEDIDO (🚨 línea de máquina OBLIGATORIA — el cliente NO la ve, pero el sistema la NECESITA para crear el pedido)
 Cuando el pedido quede ESTRUCTURALMENTE COMPLETO (resumen aceptado + modalidad elegida + método de pago elegido), DEBÉS incluir al FINAL de tu mensaje, en una línea aparte, exactamente este bloque. Es la ÚNICA forma de que el pedido se cree: si no lo emitís, el pedido se pierde. El JSON tiene que ser VÁLIDO (comillas dobles, sin comas finales, sin texto extra dentro del bloque):
-<<PEDIDO>>{"items":[{"proteina":"...","agregados":["...","..."],"extras":["..."],"modificaciones":"..."}],"total":7000,"metodo_pago":"transferencia","vuelto":null,"tipo":"delivery","direccion":"...","status":"esperando_comprobante"}<<FIN>>
+<<PEDIDO>>{"items":[{"proteina":"...","agregados":["...","..."],"bebida":"...","extras":["..."],"modificaciones":"..."}],"total":7000,"metodo_pago":"transferencia","vuelto":null,"tipo":"delivery","direccion":"...","status":"esperando_comprobante"}<<FIN>>
 - "items" es un array — un objeto por cada menú del carrito.
+- 🥤 "bebida" (OBLIGATORIO por item): la bebida incluida que el cliente eligió para ESE menú — "jugo natural" o "consomé" (el nombre exacto que eligió). Es gratis, pero la PAREJA NECESITA verla para preparar el pedido bien (sin esto preparan sin la bebida). Si el cliente no eligió bebida, poné "bebida": null. NUNCA omitas el campo.
 - "total": poné acá el MISMO array de líneas de precio que usás en <<CALC>> pero ya como número placeholder 0 — el sistema lo recalcula del <<CALC>> de este mensaje. Si en este mensaje también mostrás "Total: {{TOTAL}}", el sistema usa ese mismo cálculo para el pedido. NO sumes vos el total del pedido tampoco.
 - "metodo_pago" = "efectivo" o "transferencia". "vuelto" = número o null. "tipo" = "delivery" o "local". "direccion" = string o null si es local.
 - "status": si el pago es TRANSFERENCIA y todavía no llegó el comprobante → "esperando_comprobante". Si el pago es EFECTIVO → "confirmado".
