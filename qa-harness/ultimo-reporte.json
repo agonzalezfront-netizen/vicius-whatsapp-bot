@@ -1,0 +1,279 @@
+{
+  "fecha_bot_model": "claude-haiku-4-5",
+  "cap_usd": 4,
+  "runs_por_caso": 3,
+  "cortado_por_cap": false,
+  "resumen": {
+    "corridos": 20,
+    "total_pass": 49,
+    "total_runs": 60,
+    "solidos": 13,
+    "fluctuantes": 6,
+    "rotos": 1
+  },
+  "costo": {
+    "spentUSD": 2.6614,
+    "capUSD": 4,
+    "remainingUSD": 1.3386,
+    "calls": 435,
+    "byModel": {
+      "claude-haiku-4-5": {
+        "calls": 376,
+        "in": 2009789,
+        "out": 34352,
+        "usd": 2.1815490000000004
+      },
+      "claude-sonnet-4-6": {
+        "calls": 59,
+        "in": 100764,
+        "out": 11840,
+        "usd": 0.479892
+      }
+    }
+  },
+  "resultados": [
+    {
+      "id": "A-papamayo-off",
+      "desc": "Papa mayo NO habilitada hoy → rechazar",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 10,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "A-papamayo-on",
+      "desc": "Papa mayo habilitada hoy → aceptar como agregado incluido",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 10,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "A-doble-gratis",
+      "desc": "Doble del mismo agregado (=2) → gratis, $7.000",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 9.7,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "A-tercero-paga",
+      "desc": "3er agregado → +$2.000 ($9.000)",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 2,
+      "passRate": 0.6666666666666666,
+      "avgScore": 7.3,
+      "issues": [
+        "El bot no confirmó el pedido ni entregó un total final. En lugar de avisar claramente que el 3er agregado cuesta $2.000 y que el total es $9.000, el bot quedó en un bucle preguntando al cliente cuál agregado se cobra o si quiere dejar solo 2, sin resolver el pedido.",
+        "El bot no fue proactivo: debió informar directamente que los 3 agregados están aceptados pero el total sube a $9.000 ($7.000 + $2.000 por el 3er agregado), en vez de devolver la decisión al cliente de forma indefinida.",
+        "Nunca se mencionó ni confirmó el total de $9.000 en la conversación."
+      ],
+      "razon": "El bot identificó correctamente que el 3er agregado tiene un costo adicional de $2.000, pero nunca confirmó el pedido completo ni informó el total de $9.000. Quedó en un estado indeciso preguntando al cliente cuál agregado cobrar, sin cerrar el pedido conforme a la rúbrica."
+    },
+    {
+      "id": "A-extra-exclusivo",
+      "desc": "Extra exclusivo (papas fritas) → +$2.000 siempre",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 2,
+      "passRate": 0.6666666666666666,
+      "avgScore": 6.7,
+      "issues": [
+        "429 {\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"This request would exceed your organization's rate limit of 50,000 input tokens per minute (org: 5f9749ae-7906-4326-914e-a46803fa6af2, model: claude-haiku-4-5-20251001). For details, refer to: https://docs.claude.com/en/api/rate-limits. You can see the response headers for current usage. Reduce the prompt length or the maximum tokens requested, or try again later. View your current limits at https://console.anthropic.com/settings/limits. To raise this limit, purchase credits to advance to the next usage tier at https://console.anthropic.com/settings/billing.\"},\"request_id\":\"req_011CbnuwhjvReyuTutfuw2zS\"}"
+      ],
+      "razon": "excepción"
+    },
+    {
+      "id": "A-especial",
+      "desc": "Especial (Pabellón) + 1 agregado → cada agregado $2.000",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 2,
+      "passRate": 0.6666666666666666,
+      "avgScore": 7.7,
+      "issues": [
+        "El bot NO cobró el agregado (puré) al precio de $2.000 para el especial. Al confirmar el pedido dijo '$9.000 con puré' sin mencionar el costo adicional del agregado.",
+        "El bot NO mostró el total final de $11.000 proactivamente al cerrar (ni siquiera al confirmar el ítem). El total correcto debería ser $9.000 + $2.000 (puré) = $11.000.",
+        "Al preguntar '¿Algo más?' antes de cerrar el pedido, tampoco aprovechó para mostrar el subtotal actualizado con el agregado cobrado."
+      ],
+      "razon": "El bot aceptó el puré como parte del Pabellón criollo sin cobrar los $2.000 correspondientes (lo presentó implícitamente como incluido al decir '$9.000 con puré'), y en ningún momento mostró el total de $11.000. Esto constituye doble falla según la rúbrica: no cobró el agregado y no mostró el total final."
+    },
+    {
+      "id": "C1-B2",
+      "desc": "Pide agregado inexistente (\"papa mayo\")",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 9,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "C2",
+      "desc": "Pide proteína no disponible hoy",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 10,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "C3",
+      "desc": "Pide 3 agregados en menú estándar (debe cobrar el 3ro)",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 10,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "C10-B3",
+      "desc": "Delivery debe sumarse al total automáticamente",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 1,
+      "passRate": 0.3333333333333333,
+      "avgScore": 5.3,
+      "issues": [
+        "El bot recibió la dirección de delivery (centro de La Florida) pero NO mostró el total final incluyendo el costo de delivery. Solo preguntó si es casa o edificio, sin presentar en ningún momento el desglose: $7.000 (menú) + $1.000 (delivery) = $8.000.",
+        "La conversación quedó sin un resumen de total final con delivery incluido, incumpliendo la regla de que el bot debe mostrar el total con delivery de forma proactiva."
+      ],
+      "razon": "El bot nunca presentó el total final incluyendo el costo de delivery. Tras recibir la dirección en el centro de La Florida, únicamente preguntó el tipo de domicilio, omitiendo mostrar proactivamente el desglose $7.000 + $1.000 = $8.000, lo que incumple directamente la rúbrica."
+    },
+    {
+      "id": "C13-B4",
+      "desc": "Proactividad: resumen y total sin que se lo pidan",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 0,
+      "passRate": 0,
+      "avgScore": 4,
+      "issues": [
+        "El bot confirmó el pedido pero NO mostró el total ($7.000) ni un resumen formal con precio al anotar el pedido.",
+        "El bot esperó pasivamente con '¿Algo más?' en lugar de presentar proactivamente el resumen con el total antes de preguntar si desea agregar algo más.",
+        "La rúbrica exige que el bot sea proactivo mostrando resumen + total sin esperar que el cliente lo pida, lo cual no ocurrió."
+      ],
+      "razon": "Tras recibir todos los datos del pedido (proteína, agregados, incluido gratis, modalidad de retiro), el bot confirmó los ítems pero omitió mostrar el total ($7.000) de forma proactiva. Solo preguntó '¿Algo más?' sin incluir resumen con precio, incumpliendo directamente la rúbrica que exige mostrar total/resumen sin esperar pregunta del cliente."
+    },
+    {
+      "id": "C8",
+      "desc": "Pregunta fuera de menú (vegano) → escalar a humano",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 10,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "C9",
+      "desc": "Delivery foráneo (lejos) → no fija costo, lo confirma el local",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 9.3,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "A-delivery-prematuro",
+      "desc": "B3 real: ¿muestra total $7.000 ANTES de saber la modalidad?",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 10,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "A-delivery-suma",
+      "desc": "Delivery centro $1.000 SE SUMA al total final ($8.000)",
+      "tipo": "scripted",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 9.7,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "P-no-avanza",
+      "desc": "Cliente que charla sin intención de pedir",
+      "tipo": "persona",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 8,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "P-cambia-pedido",
+      "desc": "Cliente que cambia de pedido constantemente",
+      "tipo": "persona",
+      "runs": 3,
+      "passCount": 1,
+      "passRate": 0.3333333333333333,
+      "avgScore": 5.3,
+      "issues": [
+        "Al quitar el puré y pedir consomé en su lugar, el bot reemplazó incorrectamente el puré por 'ensalada' en los agregados del menú, introduciendo un ítem (ensalada) que el cliente nunca pidió. El carrito quedó inconsistente hasta que el cliente lo corrigió manualmente."
+      ],
+      "razon": "El bot falló en mantener el carrito coherente cuando el cliente dijo 'mejor sin el puré, mete consomé en su lugar': en lugar de quitar el puré y dejar arroz + consomé (y las papas fritas), el bot introdujo 'ensalada' como un agregado no solicitado, mezclando un ítem que el cliente nunca pidió. El cliente tuvo que corregirlo explícitamente, evidenciando que el bot perdió el hilo del estado real del pedido."
+    },
+    {
+      "id": "P-cuela-fuera-menu",
+      "desc": "Cliente que insiste en ítems fuera de menú",
+      "tipo": "persona",
+      "runs": 3,
+      "passCount": 2,
+      "passRate": 0.6666666666666666,
+      "avgScore": 7.3,
+      "issues": [
+        "El bot aceptó un 'menú sin proteína' (puré, papas y ensalada) que no existe en el menú del día. El menú establece proteínas obligatorias (carne mechada o pollo asado) y no contempla un menú vegetariano/vegano sin proteína. Al aceptarlo y cotizarlo a $7.000, el bot creó un ítem inexistente.",
+        "El bot ofreció 'jugo natural amargo (sin azúcar)' como variante del jugo incluido, lo cual podría considerarse una personalización no prevista, aunque es menor comparado con el ítem anterior.",
+        "El bot dijo 'Déjame consultarle a la pareja' ante la petición del completito, lo que genera expectativa de posible excepción en lugar de rechazar con firmeza desde el inicio."
+      ],
+      "razon": "El bot falló al aceptar un 'menú sin proteína' (puré, papas y ensalada a $7.000) que no existe en el menú del día, violando directamente la rúbrica que exige rechazar TODO ítem inexistente. El menú solo contempla menús con proteína (carne mechada o pollo asado) y platos especiales, nunca un menú vegano sin proteína."
+    },
+    {
+      "id": "P-regatea",
+      "desc": "Cliente que intenta negociar el precio",
+      "tipo": "persona",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 10,
+      "issues": [],
+      "razon": ""
+    },
+    {
+      "id": "P-regatea-terco",
+      "desc": "Cliente que regatea terco y NO se rinde (mide la escalada)",
+      "tipo": "persona",
+      "runs": 3,
+      "passCount": 3,
+      "passRate": 1,
+      "avgScore": 8.3,
+      "issues": [],
+      "razon": ""
+    }
+  ]
+}
