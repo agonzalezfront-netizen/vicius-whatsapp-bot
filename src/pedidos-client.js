@@ -87,6 +87,24 @@ export async function buscarPedidoEsperandoComprobante(jid) {
   return delJid.length ? delJid[0].id : null;
 }
 
+// Estado del pedido más reciente de un cliente (cualquier estado), para inyectar
+// CONTEXTO al system prompt: así el bot, ante un "gracias" post-entrega, no responde
+// "quedo atento al comprobante" — sabe que el pedido ya está entregado (bug 2026-06-09:
+// el bot respondía con el historial conversacional, sin el estado real del pedido).
+// Devuelve { id, status, total } del más reciente, o null si el cliente no tiene pedidos.
+export async function estadoUltimoPedido(jid) {
+  const res = await fetch(`${WIZARD_BASE}/api/pedidos`, {
+    method: 'GET',
+    headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
+  });
+  if (!res.ok) throw new Error(`estadoUltimoPedido HTTP ${res.status}`);
+  const data = await res.json();
+  const delJid = (data.pedidos ?? []).filter((p) => p.cliente_jid === jid);
+  if (!delJid.length) return null;
+  const p = delJid[0]; // el backend ordena por created_at DESC
+  return { id: p.id, status: p.status, total: p.total };
+}
+
 export async function subirComprobante(pedidoId, buffer, mime) {
   const form = new FormData();
   const ext = mime?.includes('png') ? 'png' : 'jpg';

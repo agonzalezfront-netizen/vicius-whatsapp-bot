@@ -24,6 +24,16 @@ function msgListo() {
   return '¡Tu pedido está listo! 🏠 Te esperamos para retirarlo cuando quieras.';
 }
 
+// Cierre (delivery): el pedido fue entregado. Mensaje cordial de despedida.
+function msgEntregado() {
+  return '¡Tu pedido fue entregado! 🙂 Que lo disfrutes. ¡Gracias por elegir a El Sazón de Carla y César! 🧡';
+}
+
+// Cierre (retiro): el pedido fue retirado en el local. Mensaje cordial de despedida.
+function msgRetirado() {
+  return '¡Gracias por pasar a retirar tu pedido! 🙂 Que lo disfrutes. ¡Te esperamos pronto en El Sazón de Carla y César! 🧡';
+}
+
 // Mapeo tipo de notificación (notif_pendiente del backend) → texto al cliente.
 function textoPara(p) {
   switch (p.tipo) {
@@ -31,6 +41,8 @@ function textoPara(p) {
     case 'rechazado': return msgRechazado(p.razon);
     case 'en_camino': return msgEnCamino();
     case 'listo': return msgListo();
+    case 'entregado': return msgEntregado();
+    case 'retirado': return msgRetirado();
     default: return null; // tipo desconocido → no mandamos (se limpia el flag)
   }
 }

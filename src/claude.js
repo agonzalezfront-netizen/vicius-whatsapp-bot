@@ -89,7 +89,7 @@ Decime qué te gustaría 🙂`;
   return `¡Hola! 👋 Bienvenido a El Sazón de Carla y César. Hoy tenemos comida casera. Decime qué buscás y armamos tu menú.`;
 }
 
-function systemPrompt(menu, sesion = 'nueva') {
+function systemPrompt(menu, sesion = 'nueva', estadoPedido = null) {
   const fechaHoy = getFechaLegible();
   const activeMenu = getActiveMenu();
   const contextoMenu = activeMenu
@@ -115,11 +115,39 @@ function systemPrompt(menu, sesion = 'nueva') {
     notaSesion = `\n\nNOTA DE SESIÓN: conversación en curso (mismo día, sin gap largo). NO vuelvas a saludar ni a mandar el menú completo — continuá el pedido donde quedó.`;
   }
 
+  // CONTEXTO del último pedido real (de la DB del wizard, no del historial conversacional).
+  // Evita el bug de responder "quedo atento al comprobante" cuando el pedido ya se entregó.
+  let notaPedido = '';
+  if (estadoPedido?.status) {
+    const s = estadoPedido.status;
+    const guia = {
+      esperando_comprobante:
+        'El cliente YA hizo un pedido y quedaste esperando la FOTO del comprobante de transferencia. Si manda texto en vez de la foto, recordale amablemente que esperás la imagen del comprobante para confirmar.',
+      pendiente_validacion:
+        'El comprobante YA llegó y Carla y César lo están revisando. NO pidas el comprobante de nuevo. Si pregunta, decile que el pago está en revisión y le avisás apenas se confirme.',
+      en_cocina:
+        'El pago YA fue validado y el pedido está EN PREPARACIÓN en la cocina. NO pidas comprobante. Si pregunta, decile que ya lo están preparando.',
+      en_camino:
+        'El pedido YA va EN CAMINO (delivery). NO pidas comprobante. Si pregunta, decile que el repartidor está en camino y llega en un ratito.',
+      listo:
+        'El pedido YA está LISTO para retirar en el local. NO pidas comprobante. Si pregunta, decile que puede pasar a retirarlo cuando quiera.',
+      entregado:
+        'El pedido YA fue ENTREGADO y cerrado. NO menciones comprobante ni pasos pendientes. Si el cliente agradece o escribe algo casual, respondé cordial y cerrá ("¡Gracias a vos! Que lo disfrutes 🙂"). Si quiere pedir DE NUEVO, arrancá un pedido nuevo con el menú del día.',
+      retirado:
+        'El pedido YA fue RETIRADO y cerrado. NO menciones comprobante ni pasos pendientes. Si agradece, respondé cordial y cerrá. Si quiere pedir de nuevo, arrancá un pedido nuevo.',
+      rechazado:
+        'El último pago de este cliente fue RECHAZADO. Si retoma, podés ayudarlo a rehacer el pedido o reenviar el comprobante correcto.',
+    };
+    if (guia[s]) {
+      notaPedido = `\n\nESTADO DEL ÚLTIMO PEDIDO DE ESTE CLIENTE: "${s}". ${guia[s]}`;
+    }
+  }
+
   return `Eres el asistente de pedidos de "El Sazón de Carla y César", un restaurante chileno de comida casera con delivery caminando a zonas cercanas y retiro presencial. Carla y César son la pareja dueña del local.
 
 CONTEXTO TEMPORAL
 - Fecha completa: ${fechaHoy}
-- ${contextoMenu}${notaSesion}
+- ${contextoMenu}${notaSesion}${notaPedido}
 
 TU PRIMER MENSAJE AL CLIENTE (saludo inicial)
 Cuando un cliente saluda, pregunta qué hay, o inicia conversación SIN haber pedido específicamente algo todavía, tu PRIMERA respuesta SIEMPRE incluye el menú del día con los datos EXACTOS del CONTEXTO TEMPORAL de arriba. Pattern obligatorio:
@@ -212,10 +240,10 @@ Los precios del menú son fijos. NO ofrezcas descuentos, NO inventes promos, NO 
 3. Si sigue insistiendo, CERRÁ el tema del precio de forma definitiva, SIN sugerir ningún canal de negociación (NO digas "escribíles a Carla y César para algo distinto" ni nada que sugiera que por otra vía podría haber descuento): "Los precios son fijos y no los puedo cambiar 🙂. ¿Avanzamos con tu pedido al precio del menú, o lo dejamos para otra ocasión?".
 4. Si DESPUÉS del paso 3 el cliente sigue SOLO con el descuento: no vuelvas a negociar ni a repetir el precio en bucle — una sola vez "Sobre el precio ya está todo dicho 🙂. Si querés, avanzamos con tu pedido." y NO sigas respondiendo al regateo (no des "5 minutos más", no consultes, no derives a negociar).
 
-INCLUIDO GRATIS (regla dura — GRATIS, NUNCA se cobra)
-- Cada menú incluye 1 ítem GRATIS a elección (jugo natural, consomé, y a futuro otras opciones). Preguntá cuál quiere si no lo dijo.
-- Ese ítem incluido NUNCA suma al precio. NO es un extra pagado.
-- Si el cliente pide 2, o uno "aparte/extra/grande", o un 2do: seguís sin cobrarlo — es cortesía del menú. NO inventes un precio. Si dudás, NO cobres.
+INCLUIDO GRATIS + JUGO/CONSOMÉ ADICIONAL (🚨 regla dura — afecta el cobro)
+- Cada menú (o especial) incluye 1 (UNO) jugo o consomé GRATIS a elección. Preguntá cuál quiere si no lo dijo.
+- Ese PRIMER jugo o consomé incluido NUNCA suma al precio. NO es un extra pagado.
+- Jugo o consomé ADICIONAL = $2.000 c/u. Si el cliente pide un 2º (otro, "aparte", "extra", un jugo ADEMÁS del consomé incluido, etc.), solo el primero por menú es gratis; cada uno adicional cuesta $2.000. Aclaráselo amable cuando lo pida: "El primero va incluido; cada jugo o consomé extra son $2.000 🙂" y sumalo al <<CALC>>.
 - WORDING (🚨 cara al cliente):
   - NUNCA uses la palabra "bebida" como etiqueta genérica — el consomé NO es una bebida (es un caldo). Nombrá cada incluido por su nombre real.
   - En el resumen: "un consomé gratis" / "un jugo gratis" (artículo + nombre + "gratis"). NUNCA "bebida gratis: consomé".
@@ -244,9 +272,10 @@ Qué poné en el array <<CALC>> (un número por línea de cobro):
 - Acompañamientos del menú estándar: los primeros 2 son GRATIS aunque se repitan (ej. doble puré = 2 acompañamientos = gratis, NO se cobra). Del 3er acompañamiento en adelante, cada uno = 2000 (sin importar si es de la lista normal o repetido).
 - Cada extra pagado (los que figuran en "Extras opcionales") = su precio (ej. 2000).
 - Delivery centro confirmado = 1000. Delivery foráneo NO lo pongas (lo confirma la pareja).
-- El jugo o consomé NUNCA va en el array (es gratis).
+- El PRIMER jugo o consomé de cada menú NUNCA va en el array (es gratis). Cada jugo o consomé ADICIONAL (2º en adelante por menú) = 2000, SÍ va en el array.
 Ejemplo: 1 menú + papas fritas + tostones = <<CALC>>[7000,2000,2000]<<FIN>> y el sistema pone "Total: $11.000".
 Ejemplo: 2 menús, uno con un extra, delivery centro = <<CALC>>[7000,7000,2000,1000]<<FIN>> → "$17.000".
+Ejemplo: 1 menú con el jugo incluido + 1 jugo extra = <<CALC>>[7000,2000]<<FIN>> → "$9.000" (el 1er jugo gratis, el 2º $2.000).
 
 REGLA ABSOLUTA: si escribís un total, SIEMPRE tiene que haber un <<CALC>> en el mismo mensaje y el total tiene que ser "{{TOTAL}}", nunca un número que vos calculaste. Si el cliente discute el total, NO defiendas un número — revisá las líneas, corregí el <<CALC>> si hace falta, y dejá que el sistema recalcule.
 
@@ -257,7 +286,7 @@ REGLA DURA DEL COMPROBANTE (🚨 B1 — el bot NO confirma pagos)
 EMISIÓN DEL PEDIDO (🚨 línea de máquina OBLIGATORIA — el cliente NO la ve, pero el sistema la NECESITA para crear el pedido)
 Cuando el pedido quede ESTRUCTURALMENTE COMPLETO (resumen aceptado + modalidad elegida + método de pago elegido), DEBÉS incluir al FINAL de tu mensaje, en una línea aparte, exactamente este bloque. Es la ÚNICA forma de que el pedido se cree: si no lo emitís, el pedido se pierde. El JSON tiene que ser VÁLIDO (comillas dobles, sin comas finales, sin texto extra dentro del bloque):
 <<PEDIDO>>{"items":[{"proteina":"...","agregados":["...","..."],"bebida":"...","extras":["..."],"modificaciones":"..."}],"total":7000,"metodo_pago":"transferencia","vuelto":null,"tipo":"delivery","direccion":"...","status":"esperando_comprobante"}<<FIN>>
-- "items" es un array — un objeto por cada menú del carrito.
+- "items" es un array — UN objeto SEPARADO por CADA menú/especial del carrito. Si el carrito tiene 3 platos, el array tiene 3 objetos. NUNCA colapses varios platos en un solo objeto ni los fusiones. Cada objeto lleva SUS PROPIOS "proteina", "agregados", "bebida", "extras" y "modificaciones" — los del cliente que pidió ESE plato, aunque dos platos sean iguales (repetí el objeto). Si una persona pide milanesa con puré y jugo, y otra pide pollo con arroz y consomé, son DOS objetos distintos con sus campos respectivos. NO mezcles los acompañamientos ni las bebidas entre items.
 - 🥤 "bebida" (OBLIGATORIO por item): la bebida incluida que el cliente eligió para ESE menú — "jugo natural" o "consomé" (el nombre exacto que eligió). Es gratis, pero la PAREJA NECESITA verla para preparar el pedido bien (sin esto preparan sin la bebida). Si el cliente no eligió bebida, poné "bebida": null. NUNCA omitas el campo.
 - "total": poné acá el MISMO array de líneas de precio que usás en <<CALC>> pero ya como número placeholder 0 — el sistema lo recalcula del <<CALC>> de este mensaje. Si en este mensaje también mostrás "Total: {{TOTAL}}", el sistema usa ese mismo cálculo para el pedido. NO sumes vos el total del pedido tampoco.
 - "metodo_pago" = "efectivo" o "transferencia". "vuelto" = número o null. "tipo" = "delivery" o "local". "direccion" = string o null si es local.
@@ -295,7 +324,7 @@ REGLAS DURAS
 - Mantené respuestas <400 caracteres salvo cuando saludás con menú o confirmás un pedido completo.${menuFallback}`;
 }
 
-export async function generarRespuesta({ menu, history, userMessage, sesion = 'nueva' }) {
+export async function generarRespuesta({ menu, history, userMessage, sesion = 'nueva', estadoPedido = null }) {
   const messages = [
     ...history.map((h) => ({ role: h.role, content: h.content })),
     { role: 'user', content: userMessage },
@@ -304,7 +333,7 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
   const res = await client.messages.create({
     model: MODEL,
     max_tokens: 800,
-    system: systemPrompt(menu, sesion),
+    system: systemPrompt(menu, sesion, estadoPedido),
     messages,
   });
 

@@ -1,6 +1,6 @@
 import { generarRespuesta } from './claude.js';
 import { estaAbierto, mensajeCerrado } from './horario.js';
-import { crearPedido, subirComprobante, buscarPedidoEsperandoComprobante } from './pedidos-client.js';
+import { crearPedido, subirComprobante, buscarPedidoEsperandoComprobante, estadoUltimoPedido } from './pedidos-client.js';
 import { getActiveMenu } from './active-menu.js';
 
 const HISTORY_MAX_TURNS = parseInt(process.env.HISTORY_MAX_TURNS ?? '12', 10);
@@ -394,9 +394,19 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   pushHistory(jid, 'user', userText);
   const history = getHistory(jid).slice(0, -1);
 
+  // Estado del último pedido del cliente → contexto para que el bot responda coherente
+  // (ej. no pedir comprobante de un pedido ya entregado). Best-effort: si el wizard no
+  // responde, seguimos sin el contexto (mejor responder sin estado que no responder).
+  let estadoPedido = null;
+  try {
+    estadoPedido = await estadoUltimoPedido(jid);
+  } catch (err) {
+    logger.warn({ jid, err: err.message }, 'no pude consultar el estado del último pedido (no crítico)');
+  }
+
   let respuesta;
   try {
-    const result = await generarRespuesta({ menu, history, userMessage: userText, sesion });
+    const result = await generarRespuesta({ menu, history, userMessage: userText, sesion, estadoPedido });
     respuesta = result.texto;
     logger.info({ jid, in: result.usage?.input_tokens, out: result.usage?.output_tokens }, 'claude OK');
   } catch (err) {
