@@ -139,7 +139,10 @@ function systemPrompt(menu, sesion = 'nueva', estadoPedido = null) {
         'El último pago de este cliente fue RECHAZADO. Si retoma, podés ayudarlo a rehacer el pedido o reenviar el comprobante correcto.',
     };
     if (guia[s]) {
-      notaPedido = `\n\nESTADO DEL ÚLTIMO PEDIDO DE ESTE CLIENTE: "${s}". ${guia[s]}`;
+      notaPedido = `\n\n🚨🚨 ESTADO REAL DEL ÚLTIMO PEDIDO DE ESTE CLIENTE: "${s}" — FUENTE DE VERDAD 🚨🚨
+Esto tiene PRIORIDAD ABSOLUTA sobre el historial de la conversación. El pedido avanza por un panel que vos NO ves en el chat, así que el historial puede estar DESACTUALIZADO: puede mostrar mensajes tuyos esperando el comprobante o el pago aunque eso YA pasó.
+${guia[s]}
+🚫 REGLA DURA: si en el historial hay mensajes tuyos diciendo que esperás el comprobante, que esperás el pago, o que el pedido "entra a cocina", IGNORALOS cuando el estado real de arriba ya avanzó más allá de eso. NUNCA contradigas el estado real. Si el estado es entregado o retirado, el pedido está CERRADO: bajo NINGUNA circunstancia menciones comprobante, pago, transferencia ni cocina — solo cerrá cordial o ayudá con un pedido nuevo.`;
     }
   }
 

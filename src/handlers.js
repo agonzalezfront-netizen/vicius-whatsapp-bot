@@ -222,6 +222,30 @@ function procesarCalc(texto) {
 
 // Recorta el bloque <<PEDIDO>>...<<FIN>> del texto (el cliente NO lo ve) y
 // devuelve { limpio, pedido } con el JSON parseado (o null si no hay/no parsea).
+// Mensaje sintético que refleja un estado de pedido avanzado por el PANEL (que el
+// poller envió al cliente pero NUNCA entró al historial del chat). Se inyecta como
+// último turno del asistente para que la conversación que ve Claude sea coherente
+// con el estado real. Devuelve null para estados donde el historial YA es coherente
+// (esperando_comprobante: el chat ya quedó esperando; rechazado: se maneja por prompt).
+function mensajeEstadoSintetico(status) {
+  switch (status) {
+    case 'pendiente_validacion':
+      return '¡Recibí tu comprobante! 🙌 Tu pago quedó en revisión, te aviso apenas Carla y César lo confirmen.';
+    case 'en_cocina':
+      return '¡Pago confirmado! ✅ Tu pedido ya entró a cocina 🍽️ Te aviso cuando vaya en camino.';
+    case 'en_camino':
+      return '¡Tu pedido va en camino! 🛵 Llega en un ratito. ¡Que lo disfrutes!';
+    case 'listo':
+      return '¡Tu pedido está listo! 🏠 Te esperamos para retirarlo cuando quieras.';
+    case 'entregado':
+      return '¡Tu pedido fue entregado! 🙂 Que lo disfrutes. ¡Gracias por elegir a El Sazón de Carla y César!';
+    case 'retirado':
+      return '¡Gracias por pasar a retirar tu pedido! 🙂 Que lo disfrutes.';
+    default:
+      return null;
+  }
+}
+
 function extraerPedido(texto) {
   const m = texto.match(/<<PEDIDO>>([\s\S]*?)<<FIN>>/);
   if (!m) return { limpio: texto, pedido: null, parseError: null };
@@ -404,9 +428,22 @@ export async function handleMessage({ sock, logger, menu, msg }) {
     logger.warn({ jid, err: err.message }, 'no pude consultar el estado del último pedido (no crítico)');
   }
 
+  // El historial del chat NO incluye los avisos que el poller mandó al avanzar el
+  // pedido por el panel (validado/en_camino/entregado...), así que queda ANCLADO en
+  // el último turno conversacional (típicamente esperando el comprobante). Eso hacía
+  // que el bot contradijera el estado real — bug 2026-06-10: decía "espero el
+  // comprobante" con el pedido YA entregado, y el system prompt solo NO alcanzaba a
+  // overridearlo (reproducido 12/12). Inyectamos un turno sintético del asistente con
+  // el estado real para que la conversación que ve Claude sea coherente con la realidad.
+  let historyAug = history;
+  if (estadoPedido?.status) {
+    const sint = mensajeEstadoSintetico(estadoPedido.status);
+    if (sint) historyAug = [...history, { role: 'assistant', content: sint }];
+  }
+
   let respuesta;
   try {
-    const result = await generarRespuesta({ menu, history, userMessage: userText, sesion, estadoPedido });
+    const result = await generarRespuesta({ menu, history: historyAug, userMessage: userText, sesion, estadoPedido });
     respuesta = result.texto;
     logger.info({ jid, in: result.usage?.input_tokens, out: result.usage?.output_tokens }, 'claude OK');
   } catch (err) {
