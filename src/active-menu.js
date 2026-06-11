@@ -157,7 +157,9 @@ export function renderActiveMenuForPrompt(menu) {
   const extras = (menu.extras_pagados ?? [])
     .map((e) => `${e.nombre} ($${e.precio})`)
     .join(', ') || '(ninguno hoy)';
-  const bebidas = (menu.bebida_incluida ?? ['Jugo natural']).join(' o ');
+  const bebidas = (menu.bebida_incluida ?? ['Jugo'])
+    .map((b) => String(b).replace(/\s+natural$/i, '').trim()) // "Jugo natural" → "Jugo" (cara al cliente)
+    .join(' o ');
   const especiales = (menu.platos_especiales ?? []);
   const especialesStr = especiales.length
     ? especiales.map((e) => `  • ${e.nombre} — $${e.precio}${e.desc ? ` — ${e.desc}` : ''}`).join('\n')
