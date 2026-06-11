@@ -206,12 +206,14 @@ SECUENCIA DEL PEDIDO (carrito multi-ítem, patrón cajero — seguí este orden)
    - Local: "Perfecto, te esperamos en Vicuña Mackenna Oriente 6571."
 6. AHORA que sabés la modalidad, mostrá SIEMPRE, proactivamente (sin que lo pidan), el RESUMEN completo + el TOTAL ÚNICO y DEFINITIVO. Usá la palabra "Total" (NUNCA "subtotal"). Formato (chunking, una línea por menú, extras y delivery desglosados):
    "📋 *Tu pedido:*
-   • Menú 1 — [proteína] con [acompañamiento1] y [acompañamiento2]
-   • Menú 2 — [proteína] con [acompañamiento1] y [acompañamiento2]
+   • Menú 1 — [proteína] con [acompañamiento1] y [acompañamiento2] ($7.000)
+   • Menú 2 — [proteína] con [acompañamiento1] y [acompañamiento2] ($7.000)
       + [extra] ($2.000)
+   • [Especial] — [proteína] ($8.500)
    + Delivery: $1.000   ← solo si es delivery a zona centro
 
    *Total: {{TOTAL}}*"
+   🚨 TRANSPARENCIA: CADA plato base lleva su precio en la línea, igual que los extras — el menú estándar ($7.000) y el especial con su precio propio (ej. Pescado frito $8.500). NO dejes ningún plato sin precio: el cliente debe ver cuánto vale cada uno. (El jugo/consomé incluido NO se muestra con precio porque es gratis; el jugo/consomé EXTRA sí, $2.000.)
    El <<CALC>> de este mensaje incluye TODO: cada menú/especial, cada extra y 3er-acompañamiento (+$2.000), y el delivery centro (+$1.000) SOLO si es delivery a zona centro. En retiro NO va el 1.000.
    Ejemplo delivery centro: <<CALC>>[7000,1000]<<FIN>> → "Total: $8.000". Ejemplo retiro: <<CALC>>[7000]<<FIN>> → "Total: $7.000".
    🚨 Si el total NO es el precio base (porque hay un 3er acompañamiento, un extra, o delivery), AVISÁ el cargo en el desglose para que el cliente entienda por qué (ej. "el 3er acompañamiento suma $2.000" / "+$1.000 por el delivery"). Nunca des un total mayor a $7.000 sin explicar de dónde sale.
@@ -292,6 +294,7 @@ Cuando el pedido quede ESTRUCTURALMENTE COMPLETO (resumen aceptado + modalidad e
 - "items" es un array — UN objeto SEPARADO por CADA menú/especial del carrito. Si el carrito tiene 3 platos, el array tiene 3 objetos. NUNCA colapses varios platos en un solo objeto ni los fusiones. Cada objeto lleva SUS PROPIOS "proteina", "agregados", "bebida", "extras" y "modificaciones" — los del cliente que pidió ESE plato, aunque dos platos sean iguales (repetí el objeto). Si una persona pide milanesa con puré y jugo, y otra pide pollo con arroz y consomé, son DOS objetos distintos con sus campos respectivos. NO mezcles los acompañamientos ni las bebidas entre items.
 - 🥤 "bebida" (OBLIGATORIO por item): la bebida incluida que el cliente eligió para ESE menú — "jugo natural" o "consomé" (el nombre exacto que eligió). Es gratis, pero la PAREJA NECESITA verla para preparar el pedido bien (sin esto preparan sin la bebida). Si el cliente no eligió bebida, poné "bebida": null. NUNCA omitas el campo.
 - "total": poné acá el MISMO array de líneas de precio que usás en <<CALC>> pero ya como número placeholder 0 — el sistema lo recalcula del <<CALC>> de este mensaje. Si en este mensaje también mostrás "Total: {{TOTAL}}", el sistema usa ese mismo cálculo para el pedido. NO sumes vos el total del pedido tampoco.
+- 🚨 OBLIGATORIO: en el MISMO mensaje donde ponés el <<PEDIDO>>, incluí TAMBIÉN el bloque <<CALC>>[...]<<FIN>> con TODAS las líneas de precio del pedido completo (cada menú/especial + cada extra/3er-acompañamiento + delivery si corresponde). Es la única forma de que el total del pedido quede bien. Si emitís el <<PEDIDO>> SIN un <<CALC>> en ese mismo mensaje, el total se guarda en $0 y la pareja no sabe cuánto cobrar. Ejemplo: 3 menús + 2 extras + delivery → <<CALC>>[7000,7000,9000,2000,2000,1000]<<FIN>> junto con el <<PEDIDO>>.
 - "metodo_pago" = "efectivo" o "transferencia". "vuelto" = número o null. "tipo" = "delivery" o "local". "direccion" = string o null si es local.
 - "status": si el pago es TRANSFERENCIA y todavía no llegó el comprobante → "esperando_comprobante". Si el pago es EFECTIVO → "confirmado".
 - Emitilo apenas tengas items + modalidad + método de pago, AUNQUE falte el comprobante (la pareja necesita ver el pedido entrante de inmediato). NO esperes a que el cliente mande la foto para emitirlo.
@@ -333,10 +336,17 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
     { role: 'user', content: userMessage },
   ];
 
+  // Prompt caching: el system prompt es grande (~3.5k tokens) y, dentro de una misma
+  // conversación, IDÉNTICO turno a turno (misma fecha/menú/sesión, sin estado durante
+  // el armado). Marcarlo con cache_control hace que los turnos siguientes lo lean del
+  // caché a ~10% del costo de input — sin cambiar una sola letra del contenido (cero
+  // riesgo de comportamiento). TTL ~5 min; los turnos de una conversación van seguidos.
   const res = await client.messages.create({
     model: MODEL,
     max_tokens: 800,
-    system: systemPrompt(menu, sesion, estadoPedido),
+    system: [
+      { type: 'text', text: systemPrompt(menu, sesion, estadoPedido), cache_control: { type: 'ephemeral' } },
+    ],
     messages,
   });
 

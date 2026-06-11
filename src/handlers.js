@@ -43,6 +43,14 @@ const rateLog = new Map();         // jid → timestamps de mensajes recientes (
 // comprobante", se pierde el link. Ventana de minutos, aceptable para piloto.
 const pedidosEnCurso = new Map();
 
+// jid → último total calculado por <<CALC>> en la conversación. El total del pedido
+// se muestra (con <<CALC>>) cuando el bot arma el resumen, pero el <<PEDIDO>> puede
+// emitirse en un mensaje POSTERIOR (datos de transferencia) que NO trae <<CALC>> →
+// ahí calc.total era null y se caía al placeholder pedido.total=0 (bug total $0 con
+// pedidos multi-turno, 2026-06-10). Guardamos el último total calculado para usarlo
+// como fallback robusto cuando el mensaje del <<PEDIDO>> no recalcula.
+const ultimoTotalCalc = new Map();
+
 // jid → timestamp (ms) de la última intervención manual del dueño en ese chat.
 // Mientras Date.now() - ts < OWNER_PAUSE_MS, el bot NO responde a ese cliente.
 const pausedJids = new Map();
@@ -194,7 +202,7 @@ function formatCLP(n) {
 // <<CALC>>[7000,2000,...]<<FIN>> y escribe "{{TOTAL}}" donde va el monto.
 // Acá sumamos el array, reemplazamos {{TOTAL}}, recortamos el bloque, y
 // devolvemos { limpio, total } (total = número o null si no hubo <<CALC>>).
-function procesarCalc(texto) {
+export function procesarCalc(texto) {
   const m = texto.match(/<<CALC>>([\s\S]*?)<<FIN>>/);
   let total = null;
   let limpio = texto;
@@ -246,7 +254,7 @@ function mensajeEstadoSintetico(status) {
   }
 }
 
-function extraerPedido(texto) {
+export function extraerPedido(texto) {
   const m = texto.match(/<<PEDIDO>>([\s\S]*?)<<FIN>>/);
   if (!m) return { limpio: texto, pedido: null, parseError: null };
   const limpio = texto.replace(/<<PEDIDO>>[\s\S]*?<<FIN>>/, '').trim();
@@ -456,6 +464,9 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   // total real del carrito según el código, no según el modelo.
   const calc = procesarCalc(respuesta);
   respuesta = calc.limpio;
+  // Recordar el último total calculado de la conversación (para el fallback de abajo
+  // cuando el <<PEDIDO>> se emita en un mensaje sin <<CALC>>).
+  if (calc.total !== null) ultimoTotalCalc.set(jid, calc.total);
 
   // El cliente NO debe ver el bloque <<PEDIDO>>. Recortarlo siempre.
   const { limpio, pedido, parseError } = extraerPedido(respuesta);
@@ -468,7 +479,11 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   }
   if (pedido) {
     // El total del pedido es el calculado por código (si hubo <<CALC>>), no el del LLM.
-    const totalPedido = calc.total !== null ? calc.total : pedido.total;
+    // Fallback robusto: si el mensaje del <<PEDIDO>> NO trae <<CALC>> (el total se
+    // mostró en un turno anterior), usamos el último total calculado de la conversación
+    // en vez del placeholder pedido.total (0) — bug total $0 multi-turno 2026-06-10.
+    const totalPedido =
+      calc.total !== null ? calc.total : ultimoTotalCalc.get(jid) ?? pedido.total;
     // FRENO 4 — defensa en profundidad: validar ítems del pedido contra el menú
     // habilitado. NO bloquea (el matching de strings es frágil), pero loguea si
     // el LLM dejó pasar algo fuera de menú, para detectar fugas de la regla dura.
@@ -488,7 +503,10 @@ export async function handleMessage({ sock, logger, menu, msg }) {
       });
       // Si es transferencia, guardamos el link jid→pedidoId para asociar el comprobante entrante.
       if (pedido.metodo_pago === 'transferencia') pedidosEnCurso.set(jid, res.id);
-      logger.info({ jid, pedidoId: res.id, status: res.status }, '🧾 pedido creado en wizard');
+      // Pedido ya creado con su total: limpiamos el total acumulado para que NO se
+      // filtre al próximo pedido de este cliente (el próximo recalcula su propio CALC).
+      ultimoTotalCalc.delete(jid);
+      logger.info({ jid, pedidoId: res.id, status: res.status, total: totalPedido }, '🧾 pedido creado en wizard');
     } catch (err) {
       logger.error({ jid, err: err.message }, 'crearPedido FALLA (el cliente igual recibe su confirmación)');
     }
