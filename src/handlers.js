@@ -50,6 +50,19 @@ const pedidosEnCurso = new Map();
 // recrear el mismo pedido si el LLM lo re-emite, y permite un 2º pedido distinto.
 const ultimaFirmaCreada = new Map();
 
+// jid → último array de items VÁLIDO (todas las proteínas presentes) emitido en la
+// conversación. En multi-turno el LLM a veces re-emite el <<PEDIDO>> degradado
+// (proteina:null — bug 2026-06-11: la sopa de gallina perdía su nombre y precios.js
+// caía al precio del menú $7.000 en vez del propio $6.500). Carry-forward: si el
+// PEDIDO nuevo trae items rotos, usamos los items del último válido (mismo patrón
+// que el fix del total $0 del 10-jun).
+const ultimosItemsValidos = new Map();
+
+function itemsValidos(items) {
+  return Array.isArray(items) && items.length > 0 &&
+    items.every((it) => typeof it?.proteina === 'string' && it.proteina.trim());
+}
+
 // jid → timestamp (ms) de la última intervención manual del dueño en ese chat.
 // Mientras Date.now() - ts < OWNER_PAUSE_MS, el bot NO responde a ese cliente.
 const pausedJids = new Map();
@@ -469,6 +482,18 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   }
 
   if (pedido) {
+    // CARRY-FORWARD de items: si el <<PEDIDO>> re-emitido viene degradado (algún item
+    // sin proteína), usamos los items del último PEDIDO válido de la conversación —
+    // el LLM solo suele agregar metodo_pago/tipo en el último turno, los items ya
+    // estaban bien en la emisión del resumen.
+    if (itemsValidos(pedido.items)) {
+      ultimosItemsValidos.set(jid, pedido.items);
+    } else if (ultimosItemsValidos.has(jid)) {
+      logger.warn({ jid, itemsRotos: JSON.stringify(pedido.items).slice(0, 200) },
+        '⚠️ <<PEDIDO>> re-emitido con items degradados → carry-forward de los items del último PEDIDO válido');
+      pedido.items = ultimosItemsValidos.get(jid);
+    }
+
     // 🚨 CÁLCULO Y RESUMEN POR CÓDIGO (determinista) — directriz de Alberto 2026-06-10.
     // El LLM solo dice QUÉ pidió el cliente (items/extras/bebida); el CÓDIGO pone los
     // precios (config del menú), suma, y arma el texto del resumen. Así el total y el
@@ -507,6 +532,9 @@ export async function handleMessage({ sock, logger, menu, msg }) {
           status: pedido.metodo_pago === 'transferencia' ? 'esperando_comprobante' : 'validado',
         });
         ultimaFirmaCreada.set(jid, firma);
+        // Pedido creado: limpiar el carry-forward para que estos items no se filtren
+        // a un PRÓXIMO pedido del mismo cliente.
+        ultimosItemsValidos.delete(jid);
         // Si es transferencia, guardamos el link jid→pedidoId para asociar el comprobante.
         if (pedido.metodo_pago === 'transferencia') pedidosEnCurso.set(jid, res.id);
         logger.info({ jid, pedidoId: res.id, status: res.status, total: calc.total }, '🧾 pedido creado en wizard');

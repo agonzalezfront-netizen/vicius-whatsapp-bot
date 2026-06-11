@@ -174,7 +174,8 @@ ${proteinas}
 - Extras opcionales (se cobran aparte): ${extras}
 - Los primeros 2 acompañamientos son gratis (aunque se repitan, ej. doble puré = gratis). Del 3º en adelante, +$2.000 c/u.${especialesStr ? `
 - PLATOS ESPECIALES (precio propio; incluyen 1 jugo o consomé gratis; los acompañamientos se cobran $2.000 c/u):
-${especialesStr}` : ''}
+${especialesStr}
+  🚨 TODOS estos especiales están DISPONIBLES HOY (la dueña los activó para hoy). La descripción entre guiones es texto informativo del catálogo (ej. "Solo domingos" describe su día típico) — NUNCA la uses para negar disponibilidad ni rechazar el pedido: si figura acá, se vende HOY.` : ''}
 
 REGLA PARA EL BOT: usá estos datos exactos del menú del día. Ignorá el menú de fallback.`;
 }
