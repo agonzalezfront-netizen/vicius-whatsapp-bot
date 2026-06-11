@@ -133,9 +133,9 @@ function systemPrompt(menu, sesion = 'nueva', estadoPedido = null) {
       listo:
         'El pedido YA está LISTO para retirar en el local. NO pidas comprobante. Si pregunta, decile que puede pasar a retirarlo cuando quiera.',
       entregado:
-        'El pedido YA fue ENTREGADO y cerrado. NO menciones comprobante ni pasos pendientes. Si el cliente agradece o escribe algo casual, respondé cordial y cerrá ("¡Gracias a vos! Que lo disfrutes 🙂"). Si quiere pedir DE NUEVO, arrancá un pedido nuevo con el menú del día.',
+        'El pedido YA fue ENTREGADO y cerrado. NO menciones comprobante ni pasos pendientes. Distinguí el mensaje del cliente en 3 casos: (1) SALUDO o intención de pedir ("hola", "quiero pedir", "¿tienen menú?", "buenas") → respondé con el SALUDO INICIAL COMPLETO + el menú del día vigente, igual que a un cliente nuevo, arrancando un pedido nuevo limpio — NO respondas "¿qué necesitás?" sin el menú. (2) Agradecimiento o comentario casual ("gracias", "todo rico") → respondé cordial y cerrá ("¡Gracias a vos! Que lo disfrutes 🙂") — NO mandes el menú. (3) Reclamo o pregunta sobre el pedido ("llegó frío", "me falta el jugo") → atendé el tema (derivá a la pareja si es queja), SIN menú.',
       retirado:
-        'El pedido YA fue RETIRADO y cerrado. NO menciones comprobante ni pasos pendientes. Si agradece, respondé cordial y cerrá. Si quiere pedir de nuevo, arrancá un pedido nuevo.',
+        'El pedido YA fue RETIRADO y cerrado. NO menciones comprobante ni pasos pendientes. Mismos 3 casos que entregado: saludo/intención de pedir → saludo inicial COMPLETO con el menú del día (pedido nuevo limpio); agradecimiento → cierre cordial sin menú; reclamo/pregunta → atender el tema sin menú.',
       rechazado:
         'El último pago de este cliente fue RECHAZADO. Si retoma, podés ayudarlo a rehacer el pedido o reenviar el comprobante correcto.',
     };
