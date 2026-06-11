@@ -25,5 +25,7 @@ const directo2 = /papas/i.test(c2) && !/cambiar.*papas/i.test(c2);
 console.log('\n--- C2 "papas fritas" (extra claro) ---\n'+c2.slice(0,250)+'\n→ ¿lo suma directo?', directo2?'✅':'❌');
 // CASO 3: inequívoco cambio — "mejor consomé en vez de jugo" → cambio directo
 const c3 = await caso('cambio claro', 'mejor consomé en vez de jugo');
-const directo3 = /consom/i.test(c3) && !/extra.*\$2|agregar un consomé extra/i.test(c3);
+// Solo mirar la 1ª línea (la acción), no el menú de opciones posterior.
+const accion3 = c3.split('\n')[0];
+const directo3 = /cambi/i.test(accion3) && /consom/i.test(accion3) && !/¿cómo lo anoto/i.test(c3);
 console.log('\n--- C3 "en vez de jugo" (cambio claro) ---\n'+c3.slice(0,250)+'\n→ ¿cambia directo sin desambiguar?', directo3?'✅':'❌');
