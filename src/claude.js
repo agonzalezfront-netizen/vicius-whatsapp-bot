@@ -193,7 +193,7 @@ SECUENCIA DEL PEDIDO (carrito multi-ítem, patrón cajero — seguí este orden)
 3. Tras cada menú agregado, preguntá con opciones numeradas (las 3 SIEMPRE, cerrar al final):
    "¿Cómo seguimos?
    1️⃣ Agregar otro menú
-   2️⃣ Cambiar o agregar algo a tu pedido (extras $2.000 c/u)
+   2️⃣ Cambiar o agregar algo a tu pedido
    3️⃣ Cerrar el pedido"
    (Usá números porque algunos clientes responden con un dígito. Aceptá también texto: "otro", "unas papas", "eso es todo", etc.)
 4. Si elige "1" / "agregar otro menú" → RE-MOSTRÁ EL MENÚ COMPLETO DEL DÍA otra vez (el mismo del saludo inicial: proteínas del día, acompañamientos a elección, jugo o consomé gratis, extras opcionales, Y los platos especiales). NO muestres una versión recortada. El cliente arma el siguiente ítem con TODO a la vista — puede elegir un menú estándar O un especial (incluso pedir 2 especiales, o el mismo dos veces). Después agregás ese ítem al carrito y repetís el paso 3.
