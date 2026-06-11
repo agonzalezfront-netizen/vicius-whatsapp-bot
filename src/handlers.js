@@ -495,6 +495,11 @@ export async function handleMessage({ sock, logger, menu, msg }) {
           cliente_nombre: senderName,
           items: pedido.items,
           total: calc.total, // total por CÓDIGO, no del LLM
+          // Desglose calculado por código (precios.js) persistido con el pedido: el
+          // panel del gestor renderiza ESTE desglose (misma fuente que el resumen de
+          // WhatsApp → consistentes por construcción) y los precios quedan congelados
+          // al momento del pedido (consistente aunque el menú cambie después).
+          desglose: calc,
           metodo_pago: pedido.metodo_pago,
           vuelto: pedido.vuelto ?? null,
           tipo: pedido.tipo,
