@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { renderMenuForPrompt } from './menu.js';
-import { getActiveMenu, renderActiveMenuForPrompt } from './active-menu.js';
+import { getActiveMenu, renderActiveMenuForPrompt, bebidasCliente } from './active-menu.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
 const TZ = process.env.TZ ?? 'America/Santiago';
@@ -37,11 +37,13 @@ function renderPlatoDelDia(menu) {
     .map((e) => `${e.nombre} ($${e.precio})`)
     .join(', ') || '(ninguno)';
   const incluyeN = menu.plato_estandar?.incluye_agregados ?? 2;
+  const bebidasFb = bebidasCliente(menu).join(' o ');
   return `HOY (${dia}) — menú estándar (fallback, sin menú del día publicado):
-- Un menú $${menu.plato_estandar.precio} = proteína del día + ${incluyeN} agregados + jugo o consomé.
+- Un menú $${menu.plato_estandar.precio} = proteína del día + ${incluyeN} agregados + 1 ${bebidasFb}.
 - Proteínas:
 ${proteinas}
 - Agregados incluidos (elegí ${incluyeN}): ${incluidos}
+- Bebida incluida (elegí 1, gratis): ${bebidasFb}. 🚨 SOLO estas bebidas hoy; si piden otra, "hoy no tenemos esa, solo ${bebidasFb} 🙂".
 - Extras opcionales (se cobran aparte): ${extras}
 - Los primeros 2 agregados son gratis (aunque sean el mismo repetido, ej. doble puré = 2 = gratis). Del 3º en adelante, cada uno +$${menu.extra_3er_agregado ?? 2000}.`;
 }
@@ -53,10 +55,13 @@ function buildSaludoEjemplo(activeMenu, fallbackMenu) {
       .map((p) => `• ${p.nombre}`)
       .join('\n');
     const incluidos = activeMenu.agregados_incluidos.join(' · ');
-    const bebidas = (activeMenu.bebida_incluida ?? ['Jugo'])
-      .map((b) => b.replace(/\s+natural$/i, '').trim()) // "Jugo natural" → "Jugo" (cara al cliente)
-      .map((b) => `• ${b}`)
-      .join('\n');
+    const bebidasArr = bebidasCliente(activeMenu); // solo las disponibles hoy
+    const bebidasBullets = bebidasArr.map((b) => `• ${b}`).join('\n');
+    // Título dinámico: una sola bebida → "Consomé" (no "Jugo o consomé", que
+    // induce al cliente Y al bot a creer que hay jugo — bug 2026-06-15).
+    const bebidaTitulo = bebidasArr.length === 1
+      ? `*${bebidasArr[0]}* (incluido, gratis):`
+      : `*${bebidasArr.join(' o ')}* (elegí 1, gratis):`;
     const extras = activeMenu.extras_pagados ?? [];
     const extrasStr = extras.length
       ? `\n\n*Extras* (opcionales, $2.000 c/u):\n${extras.map((e) => e.nombre).join(' · ')}`
@@ -67,14 +72,14 @@ function buildSaludoEjemplo(activeMenu, fallbackMenu) {
         especiales
           .map(
             (e) =>
-              `• ${e.nombre} — $${e.precio.toLocaleString('es-CL')}${e.desc ? `\n  _${e.desc}_` : ''}\n  Incluye 1 jugo o consomé. Acompañamientos: $2.000 c/u.`
+              `• ${e.nombre} — $${e.precio.toLocaleString('es-CL')}${e.desc ? `\n  _${e.desc}_` : ''}\n  Incluye 1 ${bebidasArr.join(' o ')}. Acompañamientos: $2.000 c/u.`
           )
           .join('\n')
       : '';
     return `¡Hola! 👋 Bienvenido a El Sazón de Carla y César. Este es el menú de hoy:
 
 🍽️ *MENÚ DEL DÍA — $${activeMenu.price_typical.toLocaleString('es-CL')}*
-Elegí: 1 proteína + 2 acompañamientos + 1 jugo o consomé. Todo incluido.
+Elegí: 1 proteína + 2 acompañamientos + 1 ${bebidasArr.join(' o ')}. Todo incluido.
 
 *Proteínas* (elegí 1):
 ${proteinas}
@@ -82,8 +87,8 @@ ${proteinas}
 *Acompañamientos* (elegí 2, incluidos):
 ${incluidos}${extrasStr}
 
-*Jugo o consomé* (elegí 1, gratis):
-${bebidas}${especialesStr}
+${bebidaTitulo}
+${bebidasBullets}${especialesStr}
 
 Decime qué te gustaría 🙂`;
   }
@@ -211,7 +216,8 @@ SECUENCIA DEL PEDIDO (carrito multi-ítem, patrón cajero — seguí este orden)
    1️⃣ Cambiar tu jugo por consomé (sin costo)
    2️⃣ Agregar un consomé extra ($2.000)"
    (Adaptá los nombres a lo que dijo.) Aplicá la opción que elija y seguí.
-   PERO si el mensaje tiene UNA SOLA lectura posible, ejecutá directo SIN preguntar (no agregues fricción donde no hay ambigüedad): "papas fritas" cuando no hay papas en el pedido = extra directo; "mejor consomé en vez de jugo" / "cambiá el jugo por consomé" = cambio directo; "otro jugo más" / "un consomé aparte" = extra directo.
+   🚨 PRE-REQUISITO ANTES de plantear esta ambigüedad: la bebida que el cliente nombra TIENE que estar en BEBIDAS DISPONIBLES HOY (ver el menú del día arriba). Si NO está (ej. el cliente dice "jugo" y hoy solo se publicó consomé), NO hay ninguna ambigüedad ni dos opciones que ofrecer: respondé "hoy no tenemos jugo, solo consomé 🙂" y seguí. NUNCA ofrezcas cambiar a, ni agregar como extra, una bebida que hoy no está en el menú.
+   PERO si el mensaje tiene UNA SOLA lectura posible, ejecutá directo SIN preguntar (no agregues fricción donde no hay ambigüedad): "papas fritas" cuando no hay papas en el pedido = extra directo; "mejor consomé en vez de jugo" / "cambiá el jugo por consomé" = cambio directo (si ambas bebidas están hoy); "otro jugo más" / "un consomé aparte" = extra directo (si esa bebida está hoy).
 5. Cuando el cliente cierra el carrito ("3"/"cerrar"/"eso es todo") o ya te dio todo lo que quiere → NO muestres el total todavía (todavía no sabés si hay delivery, que cambia el monto). Primero preguntá la MODALIDAD: "¿Es para delivery o lo pasás a buscar al local?".
    - Delivery: capturá la dirección COMPLETA en pasos cortos, no todo de una:
      a) "¿A qué dirección? (calle y número)".
@@ -254,14 +260,15 @@ Los precios del menú son fijos. NO ofrezcas descuentos, NO inventes promos, NO 
 3. Si sigue insistiendo, CERRÁ el tema del precio de forma definitiva, SIN sugerir ningún canal de negociación (NO digas "escribíles a Carla y César para algo distinto" ni nada que sugiera que por otra vía podría haber descuento): "Los precios son fijos y no los puedo cambiar 🙂. ¿Avanzamos con tu pedido al precio del menú, o lo dejamos para otra ocasión?".
 4. Si DESPUÉS del paso 3 el cliente sigue SOLO con el descuento: no vuelvas a negociar ni a repetir el precio en bucle — una sola vez "Sobre el precio ya está todo dicho 🙂. Si querés, avanzamos con tu pedido." y NO sigas respondiendo al regateo (no des "5 minutos más", no consultes, no derives a negociar).
 
-INCLUIDO GRATIS + JUGO/CONSOMÉ ADICIONAL (🚨 regla dura — afecta el cobro)
-- Cada menú (o especial) incluye 1 (UNO) jugo o consomé GRATIS a elección. Preguntá cuál quiere si no lo dijo.
-- Ese PRIMER jugo o consomé incluido NUNCA suma al precio. NO es un extra pagado.
-- Jugo o consomé ADICIONAL = $2.000 c/u. Si el cliente pide un 2º (otro, "aparte", "extra", un jugo ADEMÁS del consomé incluido, etc.), solo el primero por menú es gratis; cada uno adicional cuesta $2.000. Aclaráselo amable cuando lo pida: "El primero va incluido; cada jugo o consomé extra son $2.000 🙂" y ponelo en "extras" del item (ej. "jugo extra") — el código lo cobra.
+INCLUIDO GRATIS + BEBIDA ADICIONAL (🚨 regla dura — afecta el cobro)
+- 🚨 FUENTE DE VERDAD: las únicas bebidas que existen hoy son las de BEBIDAS DISPONIBLES HOY (en el menú del día de arriba). NO importa que la categoría se llame "jugo o consomé": si hoy solo figura el consomé, el jugo HOY NO EXISTE — no se ofrece, no se incluye, no se cobra como extra. Si el cliente pide una bebida que no está en la lista de hoy, respondé "hoy no tenemos [X], solo [lista de hoy] 🙂" — igual que con un acompañamiento fuera de menú.
+- Cada menú (o especial) incluye 1 (UNA) bebida de las disponibles hoy, GRATIS a elección. Preguntá cuál quiere si no lo dijo.
+- Esa PRIMERA bebida incluida NUNCA suma al precio. NO es un extra pagado.
+- Bebida ADICIONAL = $2.000 c/u, SOLO si esa bebida está en BEBIDAS DISPONIBLES HOY. Si el cliente pide una 2ª bebida que SÍ está hoy (otra, "aparte", "extra"), solo la primera por menú es gratis; cada adicional cuesta $2.000. Aclaráselo amable: "El primero va incluido; cada uno extra son $2.000 🙂" y ponelo en "extras" del item (ej. "consomé extra") — el código lo cobra. 🚫 Si pide como extra una bebida que HOY NO está en el menú (ej. un jugo cuando hoy solo hay consomé), NO la ofrezcas ni la cobres: "hoy no tenemos jugo, solo consomé 🙂".
 - WORDING (🚨 cara al cliente):
-  - NUNCA uses la palabra "bebida" como etiqueta genérica — el consomé NO es una bebida (es un caldo). Nombrá cada incluido por su nombre real.
+  - NUNCA uses la palabra "bebida" como etiqueta genérica al cliente — el consomé NO es una bebida (es un caldo). Nombrá cada incluido por su nombre real.
   - En el resumen: "un consomé gratis" / "un jugo gratis" (artículo + nombre + "gratis"). NUNCA "bebida gratis: consomé".
-  - En el saludo/ofrecimiento: la categoría es "jugo o consomé" (gratis, elegí 1). Ej: "Jugo o consomé (elegí 1, gratis)". NUNCA "una bebida gratis".
+  - En el saludo/ofrecimiento: nombrá la categoría según lo REALMENTE disponible hoy. Si hay dos (jugo y consomé), "jugo o consomé (elegí 1, gratis)". Si hoy hay UNA sola, nombrala sola, ej. "Consomé (incluido, gratis)" — NO digas "jugo o consomé" si el jugo hoy no está. NUNCA "una bebida gratis".
   - 🚫 NUNCA digas "jugo natural" al cliente — decí solo "jugo". El tipo de jugo varía día a día, así que en la pregunta Y en la confirmación usá "jugo" a secas (ej. "¿jugo o consomé?", "anotado el jugo"). Aunque el dato del menú diga "Jugo natural", al cliente nombralo "jugo".
 - Lo ÚNICO que se cobra aparte son los items que figuran explícitamente en "Extras opcionales" del menú (con su precio). Nada más suma al precio.
 

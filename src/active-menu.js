@@ -146,6 +146,17 @@ export function setActiveMenu(payload) {
   return activeMenu;
 }
 
+// Bebidas incluidas REALMENTE disponibles hoy, normalizadas cara al cliente
+// ("Jugo natural" → "Jugo"). Fuente de verdad para qué ofrecer/cobrar como
+// bebida: el bot NUNCA ofrece una bebida fuera de esta lista (bug 2026-06-15).
+export function bebidasCliente(menu) {
+  return (Array.isArray(menu?.bebida_incluida) && menu.bebida_incluida.length
+    ? menu.bebida_incluida
+    : ['Jugo'])
+    .map((b) => String(b).replace(/\s+natural$/i, '').trim())
+    .filter(Boolean);
+}
+
 export function renderActiveMenuForPrompt(menu) {
   if (!menu) return null;
 
@@ -157,23 +168,24 @@ export function renderActiveMenuForPrompt(menu) {
   const extras = (menu.extras_pagados ?? [])
     .map((e) => `${e.nombre} ($${e.precio})`)
     .join(', ') || '(ninguno hoy)';
-  const bebidas = (menu.bebida_incluida ?? ['Jugo'])
-    .map((b) => String(b).replace(/\s+natural$/i, '').trim()) // "Jugo natural" → "Jugo" (cara al cliente)
-    .join(' o ');
+  const bebidasArr = bebidasCliente(menu); // ["Consomé"] o ["Jugo","Consomé"], ya normalizadas
+  const bebidas = bebidasArr.join(' o ');
+  const bebidaUnidad = bebidasArr.join(' o '); // "1 ${bebidaUnidad}" → "1 consomé" o "1 jugo o consomé"
   const especiales = (menu.platos_especiales ?? []);
   const especialesStr = especiales.length
     ? especiales.map((e) => `  • ${e.nombre} — $${e.precio}${e.desc ? ` — ${e.desc}` : ''}`).join('\n')
     : null;
 
   return `MENÚ DEL DÍA (publicado ${menu.published_at} — ${menu.day_label}, ${menu.day_name})
-- Un menú $${menu.price_typical} = 1 proteína del día + 2 acompañamientos a elección + 1 jugo o consomé.
+- Un menú $${menu.price_typical} = 1 proteína del día + 2 acompañamientos a elección + 1 ${bebidaUnidad}.
 - Proteínas de hoy:
 ${proteinas}
 - Acompañamientos incluidos (elegí 2): ${incluidos}
-- Jugo o consomé (elegí 1, gratis — nombralo por su nombre, NO "bebida"): ${bebidas}
+- Bebida incluida (elegí 1, gratis — nombrala por su nombre, NO "bebida"): ${bebidas}
+  🚨 BEBIDAS DISPONIBLES HOY (fuente de verdad): SOLO ${bebidas}. Esta lista —no el título genérico "jugo o consomé"— manda. Si el cliente pide una bebida que NO está acá (ej. pide "jugo" y hoy solo hay consomé), respondé "hoy no tenemos jugo, solo ${bebidas} 🙂": NO la ofrezcas, NO la agregues al carrito, NO inventes precio (ni gratis ni $2.000 de extra). La bebida extra de $2.000 SOLO aplica a bebidas que SÍ están en esta lista.
 - Extras opcionales (se cobran aparte): ${extras}
 - Los primeros 2 acompañamientos son gratis (aunque se repitan, ej. doble puré = gratis). Del 3º en adelante, +$2.000 c/u.${especialesStr ? `
-- PLATOS ESPECIALES (precio propio; incluyen 1 jugo o consomé gratis; los acompañamientos se cobran $2.000 c/u):
+- PLATOS ESPECIALES (precio propio; incluyen 1 ${bebidaUnidad} gratis; los acompañamientos se cobran $2.000 c/u):
 ${especialesStr}
   🚨 TODOS estos especiales están DISPONIBLES HOY (la dueña los activó para hoy). La descripción entre guiones es texto informativo del catálogo (ej. "Solo domingos" describe su día típico) — NUNCA la uses para negar disponibilidad ni rechazar el pedido: si figura acá, se vende HOY.` : ''}
 
