@@ -4,6 +4,7 @@ import {
   useMultiFileAuthState,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  downloadMediaMessage,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import pino from 'pino';
@@ -16,6 +17,7 @@ import { startQRServer, setQR, clearQR, setStatus } from './qr-server.js';
 import { cargarMenuActual } from './pedidos-client.js';
 import { validateMenuPayload, setActiveMenu } from './active-menu.js';
 import { startNotifPoller } from './notif-poller.js';
+import { loadTenantsFromEnv, tenantCount } from './cloud-api/tenants.js';
 
 // Socket Baileys vigente (cambia en reconexiones). El notif-poller lo usa para
 // mandar los mensajes salientes (MSG-2/MSG-3) al cliente.
@@ -45,6 +47,9 @@ async function connectSocket() {
     markOnlineOnConnect: false,
     syncFullHistory: false,
   });
+
+  // Descarga de media transport-agnostic (handlers.js usa sock.downloadImage).
+  sock.downloadImage = (msg) => downloadMediaMessage(msg, 'buffer', {});
 
   sock.ev.on('creds.update', saveCreds);
 
@@ -154,7 +159,13 @@ async function bootstrap() {
     logger.warn({ err: err.message }, 'no se pudo recuperar el menú del wizard (no crítico, el bot arranca igual)');
   }
 
-  startQRServer(logger);
+  // Cargar tenants Cloud API (si hay env). El webhook /webhook coexiste con Baileys:
+  // el bot vivo sigue en Baileys (número real) y el webhook atiende el número de
+  // prueba de Meta (Fase A). El cutover total a Cloud API es Fase B.
+  const nTenants = loadTenantsFromEnv();
+  logger.info({ tenants: nTenants }, nTenants ? '🌐 Cloud API webhook activo (tenants cargados)' : 'Cloud API sin tenants (solo Baileys)');
+
+  startQRServer(logger, { menu, handleMessage });
 
   await connectSocket();
 

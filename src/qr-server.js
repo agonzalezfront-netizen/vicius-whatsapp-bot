@@ -3,6 +3,7 @@ import qrcode from 'qrcode';
 import { getActiveMenu, setActiveMenu, validateMenuPayload, clearActiveMenu } from './active-menu.js';
 import { clearAllHistories } from './handlers.js';
 import { guardarMenuActual } from './pedidos-client.js';
+import { handleVerify, handleIncoming } from './cloud-api/webhook.js';
 
 let currentQR = null;
 let connectionStatus = 'starting';
@@ -44,6 +45,22 @@ function readJsonBody(req, maxBytes = 64 * 1024) {
   });
 }
 
+// Body crudo (string) — necesario para validar la firma HMAC del webhook de Meta.
+function readRawBody(req, maxBytes = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    req.setEncoding('utf-8');
+    let raw = '';
+    let n = 0;
+    req.on('data', (chunk) => {
+      n += Buffer.byteLength(chunk, 'utf-8');
+      if (n > maxBytes) { reject(new Error('body demasiado grande')); req.destroy(); return; }
+      raw += chunk;
+    });
+    req.on('end', () => resolve(raw));
+    req.on('error', reject);
+  });
+}
+
 function jsonResponse(res, code, payload) {
   const body = Buffer.from(JSON.stringify(payload), 'utf-8');
   res.writeHead(code, {
@@ -56,7 +73,10 @@ function jsonResponse(res, code, payload) {
   res.end(body);
 }
 
-export function startQRServer(logger, port = parseInt(process.env.PORT ?? '8080', 10)) {
+export function startQRServer(logger, opts = {}) {
+  const port = opts.port ?? parseInt(process.env.PORT ?? '8080', 10);
+  const fallbackMenu = opts.menu ?? null;
+  const handleMessage = opts.handleMessage ?? null;
   const server = createServer(async (req, res) => {
     if (req.method === 'OPTIONS') {
       res.writeHead(204, {
@@ -181,6 +201,45 @@ export function startQRServer(logger, port = parseInt(process.env.PORT ?? '8080'
         res.end('QR render error');
       }
       return;
+    }
+
+    // ── WhatsApp Cloud API webhook ──
+    if (req.url.split('?')[0] === '/webhook') {
+      // GET: handshake de verificación de Meta.
+      if (req.method === 'GET') {
+        const u = new URL(req.url, 'http://localhost');
+        const query = Object.fromEntries(u.searchParams.entries());
+        const r = handleVerify(query);
+        res.writeHead(r.status, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end(r.body);
+        if (r.ok) logger.info('webhook: handshake de verificación OK');
+        else logger.warn('webhook: handshake rechazado (verify_token no coincide)');
+        return;
+      }
+      // POST: mensajes entrantes.
+      if (req.method === 'POST') {
+        let raw;
+        try {
+          raw = await readRawBody(req);
+        } catch (err) {
+          logger.warn({ err: err.message }, 'webhook POST body inválido');
+          res.writeHead(400); res.end('bad request'); return;
+        }
+        if (!handleMessage) {
+          logger.error('webhook: handleMessage no inyectado en startQRServer');
+          res.writeHead(500); res.end('not configured'); return;
+        }
+        const sig = req.headers['x-hub-signature-256'];
+        let result;
+        try {
+          result = await handleIncoming(raw, sig, { logger, menu: fallbackMenu, handleMessage });
+        } catch (err) {
+          logger.error({ err: err.message, stack: err.stack }, 'webhook handleIncoming falló');
+          result = { status: 200 }; // 200 igual: evita que Meta reintente en loop por un bug nuestro
+        }
+        res.writeHead(result.status); res.end();
+        return;
+      }
     }
 
     res.writeHead(404);

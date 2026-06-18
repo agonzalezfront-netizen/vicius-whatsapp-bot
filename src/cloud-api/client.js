@@ -6,7 +6,7 @@
 // Doc: https://developers.facebook.com/docs/whatsapp/cloud-api/reference
 // Node 20+ trae fetch global; no dependemos de librerías HTTP externas.
 
-const GRAPH_VERSION = process.env.GRAPH_API_VERSION ?? 'v21.0';
+const GRAPH_VERSION = process.env.GRAPH_API_VERSION ?? 'v25.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
 // Construye un cliente atado a un tenant (un número de WhatsApp Business).

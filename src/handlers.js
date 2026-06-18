@@ -356,8 +356,8 @@ export async function handleMessage({ sock, logger, menu, msg }) {
     }
     if (pedidoId) {
       try {
-        const { downloadMediaMessage } = await import('@whiskeysockets/baileys');
-        const buffer = await downloadMediaMessage(msg, 'buffer', {});
+        // Descarga transport-agnostic: el sock (Baileys o Cloud API) provee downloadImage.
+        const buffer = await sock.downloadImage(msg);
         const mime = msg.message.imageMessage.mimetype ?? 'image/jpeg';
         await subirComprobante(pedidoId, buffer, mime);
         pedidosEnCurso.delete(jid);
