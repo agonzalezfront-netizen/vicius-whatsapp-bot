@@ -5,7 +5,16 @@ import { getActiveMenu, renderActiveMenuForPrompt, bebidasCliente } from './acti
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
 const TZ = process.env.TZ ?? 'America/Santiago';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// maxRetries alto + timeout explícito: la API de Anthropic a veces corta la conexión
+// a media respuesta ("Premature close", APIConnectionError). El SDK reintenta con
+// backoff los errores de conexión; subimos el tope para que un blip transitorio NO
+// caiga al fallback de error cara al cliente. (Afecta a ambos transportes: Baileys y
+// Cloud API.) Verificado 2026-06-18: un "Premature close" mandó el fallback en vez del menú.
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  maxRetries: Number(process.env.ANTHROPIC_MAX_RETRIES ?? 4),
+  timeout: Number(process.env.ANTHROPIC_TIMEOUT_MS ?? 30000),
+});
 
 function getDiaActual() {
   const fmt = new Intl.DateTimeFormat('es-CL', { timeZone: TZ, weekday: 'long' });
@@ -344,14 +353,34 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
   // el armado). Marcarlo con cache_control hace que los turnos siguientes lo lean del
   // caché a ~10% del costo de input — sin cambiar una sola letra del contenido (cero
   // riesgo de comportamiento). TTL ~5 min; los turnos de una conversación van seguidos.
-  const res = await client.messages.create({
+  // Red de seguridad extra sobre los reintentos del SDK: errores de conexión como
+  // "Premature close" pueden no clasificarse como retryable y caerían al fallback de
+  // error cara al cliente. Reintentamos a mano con backoff corto antes de propagar.
+  const payload = {
     model: MODEL,
     max_tokens: 800,
     system: [
       { type: 'text', text: systemPrompt(menu, sesion, estadoPedido), cache_control: { type: 'ephemeral' } },
     ],
     messages,
-  });
+  };
+  let res;
+  let lastErr;
+  for (let intento = 1; intento <= 3; intento++) {
+    try {
+      res = await client.messages.create(payload);
+      lastErr = null;
+      break;
+    } catch (err) {
+      lastErr = err;
+      const transient = /premature close|ECONNRESET|ETIMEDOUT|fetch failed|terminated|socket hang up|529|overloaded|503/i.test(
+        `${err?.message ?? ''} ${err?.cause?.message ?? ''}`,
+      );
+      if (intento >= 3 || !transient) throw err;
+      await new Promise((r) => setTimeout(r, 400 * intento)); // 400ms, 800ms
+    }
+  }
+  if (!res) throw lastErr ?? new Error('generarRespuesta: sin respuesta del LLM');
 
   const texto = res.content
     .filter((c) => c.type === 'text')
