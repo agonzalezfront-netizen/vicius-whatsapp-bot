@@ -5,6 +5,7 @@ import { clearAllHistories } from './handlers.js';
 import { guardarMenuActual } from './pedidos-client.js';
 import { handleVerify, handleIncoming } from './cloud-api/webhook.js';
 import { tenantCount } from './cloud-api/tenants.js';
+import { generarRespuesta } from './claude.js';
 
 let currentQR = null;
 let connectionStatus = 'starting';
@@ -106,6 +107,25 @@ export function startQRServer(logger, opts = {}) {
           phone_number_id_set: !!process.env.WA_PHONE_NUMBER_ID,
         },
       });
+      return;
+    }
+
+    // Diagnóstico de conectividad al LLM (incidente "Premature close" 2026-06-18).
+    // Hace una llamada mínima a Anthropic y reporta ok/error → permite probar el fix
+    // de transporte por curl directo, sin pasar por WhatsApp.
+    if (req.url === '/healthz/claude') {
+      const t0 = Date.now();
+      try {
+        const r = await generarRespuesta({
+          menu: fallbackMenu ?? { plato_estandar: { precio: 7000, incluye_agregados: 2 }, datos_transferencia: { configurado: false } },
+          history: [],
+          userMessage: 'ping (diagnóstico, responde solo "ok")',
+          sesion: 'continua',
+        });
+        jsonResponse(res, 200, { ok: true, ms: Date.now() - t0, sample: (r.texto ?? '').slice(0, 60) });
+      } catch (err) {
+        jsonResponse(res, 200, { ok: false, ms: Date.now() - t0, error: err?.message ?? String(err) });
+      }
       return;
     }
 

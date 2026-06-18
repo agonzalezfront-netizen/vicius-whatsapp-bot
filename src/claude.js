@@ -1,9 +1,29 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { Agent } from 'undici';
 import { renderMenuForPrompt } from './menu.js';
 import { getActiveMenu, renderActiveMenuForPrompt, bebidasCliente } from './active-menu.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
 const TZ = process.env.TZ ?? 'America/Santiago';
+
+// Dispatcher dedicado para Anthropic. Causa raíz del incidente 2026-06-18: desde el
+// egress de Railway, TODA llamada a api.anthropic.com fallaba con "Premature close"
+// (la conexión se cortaba a media respuesta) — mientras desde local andaba. Síntoma
+// clásico de problema de transporte HTTP/2 o IPv6 del datacenter. Forzamos HTTP/1.1
+// (allowH2:false) e IPv4 (connect.family:4), y reciclamos sockets idle rápido para no
+// reusar conexiones que el server ya cerró. Configurable por env para poder ajustar
+// sin redeploy de código.
+const ANTHROPIC_FORCE_IPV4 = (process.env.ANTHROPIC_FORCE_IPV4 ?? 'true') !== 'false';
+const ANTHROPIC_ALLOW_H2 = (process.env.ANTHROPIC_ALLOW_H2 ?? 'false') === 'true';
+const anthropicDispatcher = new Agent({
+  allowH2: ANTHROPIC_ALLOW_H2,
+  keepAliveTimeout: 10_000,
+  keepAliveMaxTimeout: 30_000,
+  connect: {
+    timeout: 10_000,
+    ...(ANTHROPIC_FORCE_IPV4 ? { family: 4 } : {}),
+  },
+});
 
 // maxRetries alto + timeout explícito: la API de Anthropic a veces corta la conexión
 // a media respuesta ("Premature close", APIConnectionError). El SDK reintenta con
@@ -14,6 +34,9 @@ const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
   maxRetries: Number(process.env.ANTHROPIC_MAX_RETRIES ?? 4),
   timeout: Number(process.env.ANTHROPIC_TIMEOUT_MS ?? 30000),
+  // Custom fetch con el dispatcher dedicado (HTTP/1.1 + IPv4) para evitar el
+  // "Premature close" sistemático del egress de Railway hacia Anthropic.
+  fetch: (url, init) => fetch(url, { ...init, dispatcher: anthropicDispatcher }),
 });
 
 function getDiaActual() {
