@@ -4,6 +4,7 @@ import { getActiveMenu, setActiveMenu, validateMenuPayload, clearActiveMenu } fr
 import { clearAllHistories } from './handlers.js';
 import { guardarMenuActual } from './pedidos-client.js';
 import { handleVerify, handleIncoming } from './cloud-api/webhook.js';
+import { tenantCount } from './cloud-api/tenants.js';
 
 let currentQR = null;
 let connectionStatus = 'starting';
@@ -96,6 +97,14 @@ export function startQRServer(logger, opts = {}) {
         commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? 'dev').slice(0, 7),
         build: 'pedido-carrito-v1',
         active_menu: m ? { id: m.id, day_label: m.day_label, published_at: m.published_at } : null,
+        // Diagnóstico Cloud API (booleans, NO expone valores de secretos).
+        cloud_api: {
+          tenants: tenantCount(),
+          has_token: !!process.env.WA_TOKEN,
+          has_app_secret: !!process.env.WA_APP_SECRET,
+          has_verify_token: !!process.env.WA_VERIFY_TOKEN,
+          phone_number_id_set: !!process.env.WA_PHONE_NUMBER_ID,
+        },
       });
       return;
     }
