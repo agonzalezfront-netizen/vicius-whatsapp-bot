@@ -144,18 +144,63 @@ export function startQRServer(logger, opts = {}) {
         return;
       }
       try {
-        const r = await fetch(`https://graph.facebook.com/${ver}/${pnid}?fields=verified_name,display_phone_number,quality_rating`, {
+        const r = await fetch(`https://graph.facebook.com/${ver}/${pnid}?fields=verified_name,display_phone_number,quality_rating,status,name_status,code_verification_status,platform_type,throughput`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const j = await r.json().catch(() => ({}));
         if (r.ok) {
-          jsonResponse(res, 200, { ok: true, ms: Date.now() - t0, phone: j.display_phone_number ?? null, verified_name: j.verified_name ?? null });
+          jsonResponse(res, 200, {
+            ok: true, ms: Date.now() - t0,
+            phone: j.display_phone_number ?? null, verified_name: j.verified_name ?? null,
+            // status = CONNECTED solo si el número está registrado para mensajería (POST /register).
+            status: j.status ?? null, name_status: j.name_status ?? null,
+            code_verification_status: j.code_verification_status ?? null,
+            platform_type: j.platform_type ?? null, throughput: j.throughput ?? null,
+          });
         } else {
           const e = j?.error ?? {};
           jsonResponse(res, 200, { ok: false, ms: Date.now() - t0, status: r.status, code: e.code, type: e.type, error: e.message });
         }
       } catch (err) {
         jsonResponse(res, 200, { ok: false, ms: Date.now() - t0, error: err?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // Acción admin: registrar el número para mensajería en la Cloud API
+    // (POST /{phone_number_id}/register con PIN). Paso obligatorio tras verificar el
+    // número: sin él queda verificado pero NO conectado (no aparece como WhatsApp activo
+    // ni puede enviar/recibir). Gateado con ?key=<WA_VERIFY_TOKEN>. PIN de WA_REGISTER_PIN.
+    if (req.url.split('?')[0] === '/admin/register' && req.method === 'POST') {
+      const u = new URL(req.url, 'http://localhost');
+      if (u.searchParams.get('key') !== (process.env.WA_VERIFY_TOKEN ?? '')) {
+        res.writeHead(403); res.end('forbidden'); return;
+      }
+      const token = process.env.WA_TOKEN;
+      const pnid = process.env.WA_PHONE_NUMBER_ID;
+      const ver = process.env.GRAPH_API_VERSION ?? 'v25.0';
+      const pin = process.env.WA_REGISTER_PIN;
+      if (!token || !pnid || !pin) {
+        jsonResponse(res, 200, { ok: false, error: 'falta WA_TOKEN, WA_PHONE_NUMBER_ID o WA_REGISTER_PIN' });
+        return;
+      }
+      try {
+        const r = await fetch(`https://graph.facebook.com/${ver}/${pnid}/register`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messaging_product: 'whatsapp', pin }),
+        });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && j?.success !== false) {
+          logger.info({ pnid }, '✅ número registrado para mensajería (Cloud API /register)');
+          jsonResponse(res, 200, { ok: true, registered: true });
+        } else {
+          const e = j?.error ?? {};
+          logger.warn({ pnid, code: e.code, msg: e.message }, '/register falló');
+          jsonResponse(res, 200, { ok: false, status: r.status, code: e.code, type: e.type, error: e.message, error_subcode: e.error_subcode });
+        }
+      } catch (err) {
+        jsonResponse(res, 200, { ok: false, error: err?.message ?? String(err) });
       }
       return;
     }
