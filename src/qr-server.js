@@ -129,6 +129,36 @@ export function startQRServer(logger, opts = {}) {
       return;
     }
 
+    // Diagnóstico de validez del token de Meta (WA_TOKEN). Hace un GET liviano a la
+    // Graph API con el token del env → permite saber si el token está vivo o expiró
+    // (#190 OAuthException), sin que el agente maneje el secreto. Útil para vigilar el
+    // vencimiento del token temporal y confirmar el System User permanente nuevo.
+    if (req.url === '/healthz/meta') {
+      const t0 = Date.now();
+      const token = process.env.WA_TOKEN;
+      const pnid = process.env.WA_PHONE_NUMBER_ID;
+      const ver = process.env.GRAPH_API_VERSION ?? 'v25.0';
+      if (!token || !pnid) {
+        jsonResponse(res, 200, { ok: false, error: 'falta WA_TOKEN o WA_PHONE_NUMBER_ID en el entorno' });
+        return;
+      }
+      try {
+        const r = await fetch(`https://graph.facebook.com/${ver}/${pnid}?fields=verified_name,display_phone_number,quality_rating`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok) {
+          jsonResponse(res, 200, { ok: true, ms: Date.now() - t0, phone: j.display_phone_number ?? null, verified_name: j.verified_name ?? null });
+        } else {
+          const e = j?.error ?? {};
+          jsonResponse(res, 200, { ok: false, ms: Date.now() - t0, status: r.status, code: e.code, type: e.type, error: e.message });
+        }
+      } catch (err) {
+        jsonResponse(res, 200, { ok: false, ms: Date.now() - t0, error: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     if (req.url === '/api/menu/today' && req.method === 'POST') {
       let body;
       try {
