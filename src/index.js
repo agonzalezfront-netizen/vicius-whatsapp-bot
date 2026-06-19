@@ -17,7 +17,13 @@ import { startQRServer, setQR, clearQR, setStatus } from './qr-server.js';
 import { cargarMenuActual } from './pedidos-client.js';
 import { validateMenuPayload, setActiveMenu } from './active-menu.js';
 import { startNotifPoller } from './notif-poller.js';
-import { loadTenantsFromEnv, tenantCount } from './cloud-api/tenants.js';
+import { loadTenantsFromEnv, tenantCount, getTenant } from './cloud-api/tenants.js';
+import { makeCloudClient } from './cloud-api/client.js';
+import { makeCloudSock } from './cloud-api/adapter.js';
+
+// Transporte activo: 'baileys' (default, coexiste con el webhook Cloud API) o
+// 'cloud' (cutover total: Baileys NO arranca, todo el tráfico va por Cloud API).
+const TRANSPORT = (process.env.TRANSPORT ?? 'baileys').toLowerCase();
 
 // Socket Baileys vigente (cambia en reconexiones). El notif-poller lo usa para
 // mandar los mensajes salientes (MSG-2/MSG-3) al cliente.
@@ -167,10 +173,27 @@ async function bootstrap() {
 
   startQRServer(logger, { menu, handleMessage });
 
-  await connectSocket();
-
-  // Gestor de pedidos: polling de notificaciones validado/rechazado → MSG-2/MSG-3.
-  startNotifPoller({ getSock: () => currentSock, logger });
+  if (TRANSPORT === 'cloud') {
+    // CUTOVER: transporte 100% Cloud API. Baileys NO se inicia (el número ya no está
+    // en WhatsApp app/Baileys, sino registrado en la Cloud API). El webhook /webhook
+    // (montado en startQRServer) atiende los entrantes; el notif-poller envía las
+    // notificaciones validado/rechazado por Cloud API en vez de por el sock Baileys.
+    logger.warn({ transport: 'cloud' }, '🌐 TRANSPORT=cloud — Baileys NO arranca; transporte 100% Cloud API');
+    // sock Cloud API del tenant productivo único (para los mensajes salientes del poller).
+    const getCloudSock = () => {
+      const tenant = getTenant(process.env.WA_PHONE_NUMBER_ID);
+      if (!tenant) {
+        logger.error('TRANSPORT=cloud pero no hay tenant para WA_PHONE_NUMBER_ID — el poller no podrá enviar');
+        return null;
+      }
+      return makeCloudSock(makeCloudClient(tenant, logger), logger);
+    };
+    startNotifPoller({ getSock: getCloudSock, logger });
+  } else {
+    await connectSocket();
+    // Gestor de pedidos: polling de notificaciones validado/rechazado → MSG-2/MSG-3.
+    startNotifPoller({ getSock: () => currentSock, logger });
+  }
 
   // Cierre GRACEFUL (anti-corrupción de sesiones Signal). Causa raíz del "Bad MAC"
   // 2026-06-08: matar el proceso mid-write durante un redeploy corrompe los archivos

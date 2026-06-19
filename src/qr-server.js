@@ -100,6 +100,7 @@ export function startQRServer(logger, opts = {}) {
         active_menu: m ? { id: m.id, day_label: m.day_label, published_at: m.published_at } : null,
         // Diagnóstico Cloud API (booleans, NO expone valores de secretos).
         cloud_api: {
+          transport: (process.env.TRANSPORT ?? 'baileys').toLowerCase(),
           tenants: tenantCount(),
           has_token: !!process.env.WA_TOKEN,
           has_app_secret: !!process.env.WA_APP_SECRET,
