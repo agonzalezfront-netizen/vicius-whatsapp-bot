@@ -9,6 +9,30 @@
 const GRAPH_VERSION = process.env.GRAPH_API_VERSION ?? 'v25.0';
 const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 
+// Suscribe NUESTRA app a una WABA para recibir sus webhooks (entrantes). Sin esto,
+// los mensajes al número de esa WABA NO llegan a nuestro /webhook. Idempotente:
+// llamarla de más no rompe nada. POST /{waba-id}/subscribed_apps con el token.
+// Doc: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-webhooks
+export async function subscribeAppToWaba(wabaId, token, logger = console) {
+  if (!wabaId || !token) return { ok: false, error: 'falta wabaId o token' };
+  try {
+    const res = await fetch(`${GRAPH_BASE}/${wabaId}/subscribed_apps`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const j = await res.json().catch(() => ({}));
+    if (res.ok && j?.success !== false) {
+      logger.info?.({ wabaId }, '🔔 app suscrita a la WABA (webhooks entrantes habilitados)');
+      return { ok: true };
+    }
+    logger.warn?.({ wabaId, status: res.status, err: j?.error }, 'no se pudo suscribir la app a la WABA');
+    return { ok: false, status: res.status, error: j?.error?.message };
+  } catch (err) {
+    logger.warn?.({ wabaId, err: err.message }, 'error suscribiendo la app a la WABA');
+    return { ok: false, error: err.message };
+  }
+}
+
 // Construye un cliente atado a un tenant (un número de WhatsApp Business).
 //   tenant: { phoneNumberId, token }
 export function makeCloudClient(tenant, logger = console) {

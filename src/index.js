@@ -18,7 +18,7 @@ import { cargarMenuActual } from './pedidos-client.js';
 import { validateMenuPayload, setActiveMenu } from './active-menu.js';
 import { startNotifPoller } from './notif-poller.js';
 import { loadTenantsFromEnv, tenantCount, getTenant } from './cloud-api/tenants.js';
-import { makeCloudClient } from './cloud-api/client.js';
+import { makeCloudClient, subscribeAppToWaba } from './cloud-api/client.js';
 import { makeCloudSock } from './cloud-api/adapter.js';
 
 // Transporte activo: 'baileys' (default, coexiste con el webhook Cloud API) o
@@ -179,6 +179,13 @@ async function bootstrap() {
     // (montado en startQRServer) atiende los entrantes; el notif-poller envía las
     // notificaciones validado/rechazado por Cloud API en vez de por el sock Baileys.
     logger.warn({ transport: 'cloud' }, '🌐 TRANSPORT=cloud — Baileys NO arranca; transporte 100% Cloud API');
+    // Auto-suscribir la app a la WABA (entrantes). Idempotente; clave cuando Meta crea
+    // una WABA nueva al registrar el número (sus webhooks no llegan hasta suscribir la app).
+    if (process.env.WA_WABA_ID && process.env.WA_TOKEN) {
+      subscribeAppToWaba(process.env.WA_WABA_ID, process.env.WA_TOKEN, logger).catch(() => {});
+    } else {
+      logger.warn('TRANSPORT=cloud sin WA_WABA_ID — no auto-suscribo la WABA (verificá webhooks manual)');
+    }
     // sock Cloud API del tenant productivo único (para los mensajes salientes del poller).
     const getCloudSock = () => {
       const tenant = getTenant(process.env.WA_PHONE_NUMBER_ID);
