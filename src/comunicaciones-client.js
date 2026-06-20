@@ -14,7 +14,7 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ViciusBot/1.0';
 
 function _headers(json = true) {
   const h = { Authorization: WIZARD_AUTH, 'User-Agent': UA };
-  if (json) h['Content-Type'] = 'application/json';
+  if (json) h['Content-Type'] = 'application/json; charset=utf-8';
   return h;
 }
 

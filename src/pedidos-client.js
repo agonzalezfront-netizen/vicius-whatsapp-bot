@@ -17,7 +17,7 @@ export async function crearPedido(pedido) {
   const res = await fetch(`${WIZARD_BASE}/api/pedidos`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json',
+      'Content-Type': 'application/json; charset=utf-8',
       Authorization: WIZARD_AUTH,
       'User-Agent': UA,
     },
@@ -32,7 +32,7 @@ export async function crearPedido(pedido) {
 export async function guardarMenuActual(payload) {
   const res = await fetch(`${WIZARD_BASE}/api/menu-actual`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: WIZARD_AUTH, 'User-Agent': UA },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
     body: JSON.stringify(payload),
   });
   if (!res.ok) throw new Error(`guardarMenuActual HTTP ${res.status}`);
@@ -54,7 +54,7 @@ export async function getNotifPendientes() {
 export async function marcarNotificado(pedidoId) {
   const res = await fetch(`${WIZARD_BASE}/api/pedidos/${pedidoId}/notificado`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: WIZARD_AUTH, 'User-Agent': UA },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
     body: '{}',
   });
   if (!res.ok) throw new Error(`marcarNotificado HTTP ${res.status}`);
