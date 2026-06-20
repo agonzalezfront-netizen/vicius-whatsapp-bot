@@ -3,6 +3,12 @@ import { estaAbierto, mensajeCerrado } from './horario.js';
 import { crearPedido, subirComprobante, buscarPedidoEsperandoComprobante, estadoUltimoPedido } from './pedidos-client.js';
 import { getActiveMenu } from './active-menu.js';
 import { calcularPedido, construirResumen } from './precios.js';
+import { registrarMensaje, botPausado } from './comunicaciones-client.js';
+
+// Sección Comunicaciones (handoff v1). Flag OFF por default → comportamiento idéntico
+// al actual (cero riesgo al deployar). ON cuando el wizard tenga los endpoints + la UI:
+// el bot persiste cada mensaje in/out en la bandeja y respeta la pausa durable.
+const COMUNICACIONES = (process.env.COMUNICACIONES_ENABLED ?? 'false') === 'true';
 
 const HISTORY_MAX_TURNS = parseInt(process.env.HISTORY_MAX_TURNS ?? '12', 10);
 const JITTER_MIN = parseInt(process.env.JITTER_MIN_MS ?? '800', 10);
@@ -113,6 +119,15 @@ function isOwnerPaused(jid) {
 export async function sendBotMessage(sock, jid, payload) {
   const sent = await sock.sendMessage(jid, payload);
   rememberBotSentId(sent?.key?.id);
+  // Comunicaciones (handoff v1): registrar el saliente del bot en la bandeja
+  // (fire-and-forget, best-effort). Estado inicial 'enviando'; el webhook de estados
+  // lo avanza a sent/delivered/read después.
+  if (COMUNICACIONES && payload?.text) {
+    registrarMensaje({
+      cliente_jid: jid, wa_message_id: sent?.key?.id, direction: 'out', sender: 'bot',
+      type: 'text', text: payload.text, status: 'enviando',
+    }).catch(() => {});
+  }
   return sent;
 }
 
@@ -319,6 +334,22 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   if (!pasaRateLimit(jid, Date.now())) {
     logger.warn({ jid }, '🛑 rate-limit excedido — mensaje ignorado');
     return;
+  }
+
+  // ── Comunicaciones (handoff v1): registrar el entrante + respetar pausa durable ──
+  if (COMUNICACIONES) {
+    const tipoEntrante = msg.message?.imageMessage ? 'image' : (msg.message?.audioMessage ? 'audio' : 'text');
+    // Persistir para la bandeja (fire-and-forget, best-effort: no agrega latencia ni rompe).
+    registrarMensaje({
+      cliente_jid: jid, cliente_nombre: msg.pushName, wa_message_id: msg.key.id,
+      direction: 'in', sender: 'cliente', type: tipoEntrante, text: extractText(msg) ?? '',
+    }).catch((e) => logger.warn({ jid, err: e.message }, 'registrar mensaje entrante falló (no crítico)'));
+    // Pausa durable: si un humano está atendiendo (en_atencion_humana en el wizard), el bot
+    // NO responde en paralelo. Fail-open: si el wizard no responde, el bot sigue.
+    if (await botPausado(jid)) {
+      logger.info({ jid }, '⏸️ conversación en atención humana — bot pausado, no responde');
+      return;
+    }
   }
 
   // ¿Es una imagen? Puede ser el comprobante de transferencia. El link jid→pedidoId

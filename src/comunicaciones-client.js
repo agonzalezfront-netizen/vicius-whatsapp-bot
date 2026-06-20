@@ -45,12 +45,13 @@ export async function botPausado(jid) {
   try {
     const res = await fetch(`${WIZARD_BASE}/api/conversaciones/${encodeURIComponent(jid)}/bot-activo`, {
       headers: _headers(false),
+      signal: AbortSignal.timeout(5000), // gate awaited: no debe colgar el flujo del bot
     });
     if (!res.ok) return false;
     const j = await res.json();
     return j.bot_pausado === true;
   } catch {
-    return false;
+    return false; // fail-open: wizard lento/caído → el bot sigue respondiendo
   }
 }
 
