@@ -361,7 +361,10 @@ NUNCA inventes una respuesta para estos casos. Mejor derivar que improvisar mal.
 REGLAS DURAS
 - Si el cliente pregunta algo que NO está en el menú ni en INFO DEL LOCAL: "Déjame consultarle a la pareja y vuelvo en un ratito" — NO inventes información.
 - Si el cliente pide un plato específico que NO está en el menú de hoy: "Hoy no tenemos eso, pero hoy tenemos: [LISTÁ TODAS las proteínas/opciones del día, no una sola]". Mostrale el abanico completo del día para que elija.
-- 🚨 ÍTEMS NO DISPONIBLES — agrupá y reemplazá por categoría: si el cliente pide UNO O VARIOS ítems que hoy no están (proteína, acompañamiento, extra o bebida), decíselo TODOS JUNTOS en UNA sola respuesta (NO de a uno por turno). Por CADA faltante, ofrecé el reemplazo de su MISMA categoría: proteína→las proteínas del día; acompañamiento→los acompañamientos del día; extra→los extras del día; bebida→la bebida del día. NUNCA ofrezcas una categoría por otra (si falta un extra, NO ofrezcas proteínas). Ej: "Hoy no tenemos carne mechada (proteína), puré (acompañamiento) ni jugo (bebida). Hoy hay → Proteínas: …; Acompañamientos: …; Bebida: …. ¿Qué preferís?".
+- 🚨 ÍTEMS NO DISPONIBLES — cobertura COMPLETA, agrupá y reemplazá por categoría: si el cliente pide UNO O VARIOS ítems que hoy no están, decíselos TODOS JUNTOS en UNA sola respuesta (NO de a uno). 🔴 REVISÁ CADA ítem que nombró el cliente y declará el que no esté — NO omitas ninguno (ni una bebida, ni un especial, ni algo que no reconozcas). Por CADA faltante, ofrecé el reemplazo de su MISMA categoría: proteína→proteínas del día; acompañamiento→acompañamientos del día; extra→extras del día; bebida→la bebida del día; plato especial→otros especiales. NUNCA ofrezcas una categoría por otra (si falta un extra, NO ofrezcas proteínas) NI ofrezcas reemplazo de una categoría que no faltó.
+  • Los PLATOS ESPECIALES son APARTE de las proteínas del día (precio propio) — NUNCA los listes como "proteínas del menú".
+  • 3 casos al declarar un ítem: (a) se tiene pero hoy no → "lo tenemos, pero hoy no, otros días sí"; (b) algo que el local NUNCA maneja / no reconocés (ej. patacón, capresa) → "ahora no lo tenemos, quizás más adelante" — NUNCA lo ignores ni lo dejes pasar en silencio (el cliente no debe creer que se lo vas a dar). Regla de oro: a CADA cosa que el cliente pidió, una respuesta — nunca omitas parte del pedido.
+  Ej: "Hoy no tenemos carne mechada (proteína), puré (acompañamiento), consomé (bebida) ni sopa de gallina (especial), y el patacón no lo manejamos. Hoy hay → Proteínas: …; Acompañamientos: …; Bebida: …. ¿Qué preferís?".
 - NUNCA prometas un horario, precio o producto que no esté en el menú activo o en INFO DEL LOCAL.
 - Si el cliente pide ayuda con algo NO relacionado al pedido, redirigí amable al pedido.
 - Mantené respuestas <400 caracteres salvo cuando saludás con menú o confirmás un pedido completo.${menuFallback}`;
@@ -419,14 +422,13 @@ function _parsePedido(texto) {
   try { return JSON.parse(m[1].trim()); } catch { return null; }
 }
 
-// Lo disponible HOY por categoría, normalizado.
+// Lo disponible HOY por categoría, normalizado. Proteínas del día (menú $X) y platos
+// especiales (precio aparte) van SEPARADOS — no son la misma categoría cara al cliente.
 function _disponiblesMenu(menu) {
   const am = getActiveMenu() ?? menu ?? {};
   return {
-    platos: [
-      ...(am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => _norm(p?.nombre)),
-      ...(am.platos_especiales ?? []).map((e) => _norm(e?.nombre)),
-    ].filter(Boolean),
+    platos: (am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => _norm(p?.nombre)).filter(Boolean),
+    especiales: (am.platos_especiales ?? []).map((e) => _norm(e?.nombre)).filter(Boolean),
     extras: (am.extras_pagados ?? []).map((e) => _norm(e?.nombre)).filter(Boolean),
     bebidas: bebidasCliente(am).map(_norm).filter(Boolean),
     agregados: (am.agregados_incluidos ?? []).map(_norm).filter(Boolean),
@@ -447,7 +449,11 @@ export function violacionesPedido(pedido, menu) {
   for (const it of pedido.items) {
     if (it?.proteina) {
       const p = _norm(it.proteina);
-      if (p && !_matchLista(p, d.platos)) out.push({ categoria: 'plato', item: it.proteina });
+      // la "proteina" del pedido puede ser una proteína del día o un plato especial.
+      if (p && !_matchLista(p, [...d.platos, ...d.especiales])) {
+        const cat = _matchLista(p, (getRepertorio()?.especiales ?? []).map((e) => _norm(e?.nombre))) ? 'especial' : 'plato';
+        out.push({ categoria: cat, item: it.proteina });
+      }
     }
     if (it?.bebida) {
       const b = _norm(it.bebida);
@@ -548,12 +554,12 @@ export function violacionesTexto(texto, menu) {
   const rep = getRepertorio();
   if (rep) {
     const d = _disponiblesMenu(menu);
-    const activos = [...d.platos, ...d.extras, ...d.agregados];
+    const activos = [...d.platos, ...d.especiales, ...d.extras, ...d.agregados];
     const candidatos = [
       ...(rep.proteinas ?? []).map((n) => ({ n, cat: 'plato' })),
       ...(rep.agregados ?? []).map((n) => ({ n, cat: 'acompañamiento' })),
       ...(rep.extras ?? []).map((e) => ({ n: e?.nombre, cat: 'extra' })),
-      ...(rep.especiales ?? []).map((e) => ({ n: e?.nombre, cat: 'plato' })),
+      ...(rep.especiales ?? []).map((e) => ({ n: e?.nombre, cat: 'especial' })),
     ].filter((x) => x.n);
     for (const { n: nombre, cat } of candidatos) {
       const n = _norm(nombre);
@@ -574,10 +580,51 @@ export function itemRepertorioOfrecidoEnTexto(texto, menu) {
   return v ? { categoria: 'ítem', item: v.item } : null;
 }
 
-// TODAS las violaciones de la respuesta (texto + pedido), deduplicadas por categoría+ítem.
-// El loop del guard agrupa estos faltantes en UNA sola corrección/respuesta.
-export function menuViolations(texto, menu) {
+// Ítems del MENSAJE DEL CLIENTE (universo cerrado: bebidas + repertorio) que HOY no están.
+// Sirve para detectar OMISIONES: ítems que el cliente pidió y el bot no menciona ni declina
+// (el guard normal solo mira la respuesta del bot; una omisión no deja rastro ahí).
+function _itemsClienteNoDisponibles(userMessage, menu) {
+  const out = [];
+  const u = _norm(userMessage);
+  if (!u) return out;
+  const am = getActiveMenu() ?? menu ?? {};
+  const dispBeb = bebidasCliente(am).map(_norm);
+  for (const b of _UNIVERSO_BEBIDAS) {
+    if (dispBeb.some((x) => x.includes(b))) continue;
+    if (u.includes(b)) out.push({ categoria: 'bebida', item: b });
+  }
+  const rep = getRepertorio();
+  if (rep) {
+    const d = _disponiblesMenu(menu);
+    const activos = [...d.platos, ...d.especiales, ...d.extras, ...d.agregados];
+    const cands = [
+      ...(rep.proteinas ?? []).map((n) => ({ n, cat: 'plato' })),
+      ...(rep.agregados ?? []).map((n) => ({ n, cat: 'acompañamiento' })),
+      ...(rep.extras ?? []).map((e) => ({ n: e?.nombre, cat: 'extra' })),
+      ...(rep.especiales ?? []).map((e) => ({ n: e?.nombre, cat: 'especial' })),
+    ].filter((x) => x.n);
+    for (const { n: nombre, cat } of cands) {
+      const n = _norm(nombre);
+      if (!n || n.length < 4) continue;
+      if (_matchLista(n, activos)) continue;
+      if (u.includes(n)) out.push({ categoria: cat, item: nombre });
+    }
+  }
+  return out;
+}
+
+// TODAS las violaciones (texto + pedido + OMISIONES del pedido del cliente), dedup.
+// `userMessage` (opcional) habilita la detección de omisiones: ítems del cliente no
+// disponibles hoy que el bot no menciona → el bot DEBE declararlos (cobertura completa).
+export function menuViolations(texto, menu, userMessage = '') {
   const all = [...violacionesTexto(texto, menu), ...violacionesPedido(_parsePedido(texto), menu)];
+  if (userMessage) {
+    const tNorm = _norm(texto);
+    for (const v of _itemsClienteNoDisponibles(userMessage, menu)) {
+      if (tNorm.includes(_norm(v.item))) continue; // el bot ya lo nombró (ofrecido→ya está arriba; declinado→ok)
+      all.push(v); // omisión: el cliente lo pidió, hoy no está, y el bot no lo mencionó
+    }
+  }
   const seen = new Set();
   const out = [];
   for (const v of all) {
@@ -601,20 +648,25 @@ export function menuViolation(texto, menu) {
 }
 
 // Opciones del día por categoría (para sugerir reemplazo de la MISMA categoría).
+// Proteínas del día (menú) y platos especiales (precio aparte) SEPARADOS.
 function _opcionesHoy(menu) {
   const am = getActiveMenu() ?? menu ?? {};
   return {
-    plato: [
-      ...(am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => p?.nombre),
-      ...(am.platos_especiales ?? []).map((e) => e?.nombre),
-    ].filter(Boolean).join(', ') || '—',
+    plato: (am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => p?.nombre).filter(Boolean).join(', ') || '—',
+    especial: (am.platos_especiales ?? []).map((e) => `${e?.nombre} ($${e?.precio})`).filter(Boolean).join(', ') || 'ninguno hoy',
     acompañamiento: (am.agregados_incluidos ?? []).join(', ') || '—',
     extra: (am.extras_pagados ?? []).map((e) => e?.nombre).filter(Boolean).join(', ') || 'ninguno hoy',
     bebida: bebidasCliente(am).join(' o ') || '—',
   };
 }
 
-const _CAT_LABEL = { plato: 'Proteínas', acompañamiento: 'Acompañamientos', extra: 'Extras', bebida: 'Bebida' };
+const _CAT_LABEL = {
+  plato: 'Proteínas del día',
+  especial: 'Platos especiales (precio aparte)',
+  acompañamiento: 'Acompañamientos',
+  extra: 'Extras',
+  bebida: 'Bebida',
+};
 
 // Corrección AGRUPADA: lista TODOS los faltantes juntos + el reemplazo de la MISMA
 // categoría de cada uno, en una sola respuesta (no de a uno). (Mejoras UX Alberto 2026-06-20.)
@@ -629,7 +681,7 @@ function _correccionMenuMulti(violations, menu) {
   const opciones = Object.keys(byCat)
     .map((cat) => `${_CAT_LABEL[cat] ?? cat}: ${op[cat] ?? '—'}`)
     .join(' · ');
-  return `🚨 CORRECCIÓN OBLIGATORIA: tu respuesta ofrece/confirma ítems que HOY NO están: ${faltantes}. En UNA sola respuesta (NO de a uno por turno): decile al cliente TODOS los que hoy no hay juntos, y ofrecé el reemplazo de la MISMA categoría de cada uno → ${opciones}. 🚫 NO ofrezcas una categoría por otra (si falta un extra, ofrecé EXTRAS, no proteínas). NO agregues los faltantes al <<PEDIDO>>; reemití el pedido solo con lo disponible. Devolvé SOLO el mensaje corregido.`;
+  return `🚨 CORRECCIÓN OBLIGATORIA: de lo que pidió el cliente, estos ítems HOY NO están y tu respuesta debe declararlos TODOS (no omitas ninguno, aunque no lo hayas mencionado): ${faltantes}. En UNA sola respuesta (NO de a uno por turno): decile que hoy no hay esos, y ofrecé el reemplazo de la MISMA categoría de cada uno → ${opciones}. 🚫 NO ofrezcas una categoría por otra (si falta un extra, ofrecé EXTRAS, no proteínas; los platos especiales son APARTE de las proteínas del día). 🚫 NO ofrezcas reemplazo de una categoría que NO faltó. NO agregues los faltantes al <<PEDIDO>>. Devolvé SOLO el mensaje corregido.`;
 }
 
 // Fallback determinista (último recurso): mensaje agrupado seguro, sin pedido fantasma.
@@ -686,9 +738,9 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
   // —bebida/ítem en texto o ítem en el <<PEDIDO>>— regenerar con UNA corrección que
   // agrupa TODOS los faltantes + reemplazo de la misma categoría (no goteo de a uno).
   let usageTotal = res.usage;
-  const vs0 = menuViolations(texto, menu); // faltantes que el cliente pidió originalmente
+  const vs0 = menuViolations(texto, menu, userMessage); // faltantes que el cliente pidió originalmente
   for (let intento = 1; intento <= 2; intento++) {
-    const vs = menuViolations(texto, menu);
+    const vs = menuViolations(texto, menu, userMessage);
     if (!vs.length) break;
     res = await _callLLM({
       model: MODEL, max_tokens: 800,
@@ -698,16 +750,20 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
     texto = _textoDe(res);
   }
 
-  // Último recurso (debería ser rarísimo): si tras los reintentos sigue violando, NO
-  // mandamos la oferta/pedido inválido — fallback seguro, determinista y AGRUPADO.
-  // Recortamos cualquier <<PEDIDO>> (no se crea un pedido fantasma con faltantes).
-  // Usamos la UNIÓN de los faltantes originales + residuales → el mensaje lista TODO
-  // lo que el cliente pidió y no hay (no solo lo que quedó suelto en el último intento).
-  const vsFinal = menuViolations(texto, menu);
-  if (vsFinal.length) {
+  // Garantía de COBERTURA (Cortex/Alberto 2026-06-20, prioridad máxima): el bot NUNCA
+  // debe dejar SIN DECLARAR un ítem que el cliente pidió y hoy no está. Esto va más allá
+  // de "no ofrecer un faltante": exige que CADA faltante requerido esté NOMBRADO en la
+  // respuesta final. Si el LLM dejó alguno fuera (silencio) o todavía hay una violación
+  // residual, caemos al fallback agrupado y determinista (que los nombra todos).
+  const requeridos = _itemsClienteNoDisponibles(userMessage, menu); // universo cerrado del pedido del cliente
+  const vsFinal = menuViolations(texto, menu, userMessage);
+  const tNorm = _norm(texto);
+  const sinDeclarar = requeridos.filter((v) => !tNorm.includes(_norm(v.item)));
+  if (vsFinal.length || sinDeclarar.length) {
+    // Unión: faltantes originales (vs0) + requeridos del cliente + residuales → lista TODO.
     const seen = new Set();
     const union = [];
-    for (const v of [...vs0, ...vsFinal]) {
+    for (const v of [...vs0, ...requeridos, ...vsFinal]) {
       const k = `${v.categoria}|${_norm(v.item)}`;
       if (seen.has(k)) continue;
       seen.add(k);

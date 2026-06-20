@@ -148,5 +148,24 @@ const soloExtra = menuViolations('¿Te sumo unos Tostones al ajillo? 🙂', null
 check('extra no-hoy detectado con categoria extra',
   soloExtra.length === 1 && soloExtra[0].categoria === 'extra');
 
+// ── Cobertura de omisiones + especiales separados (crítica E2E Alberto 2026-06-20) ──
+console.log('\n— Omisión: ítem que el cliente pidió, no está hoy, y el bot NO mencionó —');
+// menú repertorio activo: bebida hoy = Consomé; jugo está en repertorio pero NO hoy.
+// El bot responde algo que NO menciona jugo → debe detectarse la omisión vía userMessage.
+const omJugo = menuViolations('¡Listo! Te anoto el pollo con arroz 🙂', null, 'quiero pollo con arroz y un jugo');
+check('omisión de jugo (cliente lo pidió, bot no lo nombró) → detectada',
+  omJugo.some((v) => v.categoria === 'bebida' && /jugo/i.test(v.item)));
+const omEsp = menuViolations('¡Listo! Pollo asado con arroz 🙂', null, 'quiero el pabellón criollo');
+check('omisión de especial no-hoy (Pabellón) → detectada como especial',
+  omEsp.some((v) => v.categoria === 'especial' && /pabell/i.test(v.item)));
+check('sin userMessage NO escanea omisiones (back-compat)',
+  menuViolations('¡Listo! Pollo asado con arroz 🙂', null).length === 0);
+check('ítem del cliente que SÍ está hoy (pollo asado) NO es omisión',
+  !menuViolations('¡Listo! 🙂', null, 'quiero pollo asado').some((v) => /pollo asado/i.test(v.item)));
+
+console.log('\n— Especiales separados de proteínas —');
+check('Pabellón ofrecido en texto → categoria especial (no plato)',
+  menuViolations('Hoy te recomiendo el Pabellón criollo 🙂', null).some((v) => v.categoria === 'especial' && /pabell/i.test(v.item)));
+
 console.log(`\n=== UNIT: ${pass} OK, ${fail} FAIL ===`);
 process.exit(fail ? 1 : 0);
