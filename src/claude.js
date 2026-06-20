@@ -366,51 +366,99 @@ REGLAS DURAS
 - Mantené respuestas <400 caracteres salvo cuando saludás con menú o confirmás un pedido completo.${menuFallback}`;
 }
 
-export async function generarRespuesta({ menu, history, userMessage, sesion = 'nueva', estadoPedido = null }) {
-  const messages = [
-    ...history.map((h) => ({ role: h.role, content: h.content })),
-    { role: 'user', content: userMessage },
-  ];
+// ── Guard determinista anti-oferta de bebida no disponible (fix jugo, opción 2) ──
+// El prompt es probabilístico: ~1/3 de las veces el LLM ofrece igual una bebida que
+// HOY no está en el menú (ej. "jugo" cuando solo hay consomé). Esta capa de CÓDIGO
+// garantiza al 100% que el cliente nunca vea esa oferta: detecta la violación y
+// regenera con corrección; si persiste, usa un fallback seguro. (Cortex/Alberto 2026-06-20.)
+const _UNIVERSO_BEBIDAS = ['jugo', 'consome'];
 
-  // Prompt caching: el system prompt es grande (~3.5k tokens) y, dentro de una misma
-  // conversación, IDÉNTICO turno a turno (misma fecha/menú/sesión, sin estado durante
-  // el armado). Marcarlo con cache_control hace que los turnos siguientes lo lean del
-  // caché a ~10% del costo de input — sin cambiar una sola letra del contenido (cero
-  // riesgo de comportamiento). TTL ~5 min; los turnos de una conversación van seguidos.
-  // Red de seguridad extra sobre los reintentos del SDK: errores de conexión como
-  // "Premature close" pueden no clasificarse como retryable y caerían al fallback de
-  // error cara al cliente. Reintentamos a mano con backoff corto antes de propagar.
-  const payload = {
-    model: MODEL,
-    max_tokens: 800,
-    system: [
-      { type: 'text', text: systemPrompt(menu, sesion, estadoPedido), cache_control: { type: 'ephemeral' } },
-    ],
-    messages,
-  };
-  let res;
-  let lastErr;
+function _norm(s) {
+  return (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+// Devuelve la bebida NO disponible que la respuesta ofrece/menciona sin declinar, o null.
+export function bebidaNoDisponibleOfrecida(texto, menu) {
+  const t = _norm(texto);
+  // Nombres de bebida publicados hoy, normalizados (ej. ['jugo natural', 'consome']).
+  const dispNorm = bebidasCliente(getActiveMenu() ?? menu ?? {}).map(_norm);
+  // Una keyword del universo está disponible si ALGÚN nombre publicado la contiene
+  // (ej. "Jugo natural" cubre la keyword "jugo"). Evita recortar un jugo válido.
+  const disponible = (kw) => dispNorm.some((d) => d.includes(kw));
+  for (const b of _UNIVERSO_BEBIDAS) {
+    if (disponible(b)) continue;           // está disponible hoy → ok
+    if (!t.includes(b)) continue;          // no se menciona → ok
+    // Se menciona una bebida NO disponible. Solo es OK si la respuesta NIEGA esa
+    // bebida específica, con la negación PEGADA a la bebida. Gaps anchos o un "sin"
+    // suelto fallan: p.ej. "...por jugo (sin costo) ... agregar un jugo" hace que
+    // "sin" matchee el 2º jugo y dé un falso "declina". Si dudás → tratá como oferta.
+    const declina = new RegExp(
+      `(no (tenemos|hay|queda|contamos con|disponemos de)|ya no (hay|tenemos|queda)|hoy no (hay|tenemos)|sin)\\s+(m[áa]s\\s+)?${b}` +
+      `|${b}\\s+(no (lo )?(tenemos|hay|queda)|se acab|est[áa] agotad|no est[áa] disponible)`,
+    ).test(t);
+    if (!declina) return b;                // mención no-declinatoria → violación
+  }
+  return null;
+}
+
+async function _callLLM(payload) {
+  let res, lastErr;
   for (let intento = 1; intento <= 3; intento++) {
     try {
       res = await client.messages.create(payload);
-      lastErr = null;
-      break;
+      return res;
     } catch (err) {
       lastErr = err;
       const transient = /premature close|ECONNRESET|ETIMEDOUT|fetch failed|terminated|socket hang up|529|overloaded|503/i.test(
         `${err?.message ?? ''} ${err?.cause?.message ?? ''}`,
       );
       if (intento >= 3 || !transient) throw err;
-      await new Promise((r) => setTimeout(r, 400 * intento)); // 400ms, 800ms
+      await new Promise((r) => setTimeout(r, 400 * intento));
     }
   }
-  if (!res) throw lastErr ?? new Error('generarRespuesta: sin respuesta del LLM');
+  throw lastErr ?? new Error('generarRespuesta: sin respuesta del LLM');
+}
 
-  const texto = res.content
-    .filter((c) => c.type === 'text')
-    .map((c) => c.text)
-    .join('')
-    .trim();
+function _textoDe(res) {
+  return res.content.filter((c) => c.type === 'text').map((c) => c.text).join('').trim();
+}
 
-  return { texto, usage: res.usage };
+export async function generarRespuesta({ menu, history, userMessage, sesion = 'nueva', estadoPedido = null }) {
+  const messages = [
+    ...history.map((h) => ({ role: h.role, content: h.content })),
+    { role: 'user', content: userMessage },
+  ];
+  // Prompt caching: el system prompt es grande y dentro de una conversación es idéntico
+  // turno a turno → cache_control lo lee del caché a ~10% del costo. Retry transient
+  // (Premature close) dentro de _callLLM (ver fix HTTP/1.1+IPv4 + reintentos).
+  const sysText = systemPrompt(menu, sesion, estadoPedido);
+  const system = [{ type: 'text', text: sysText, cache_control: { type: 'ephemeral' } }];
+
+  let res = await _callLLM({ model: MODEL, max_tokens: 800, system, messages });
+  let texto = _textoDe(res);
+
+  // Guard determinista: si ofrece una bebida no disponible, regenerar con corrección.
+  let usageTotal = res.usage;
+  for (let intento = 1; intento <= 2; intento++) {
+    const bebidaMala = bebidaNoDisponibleOfrecida(texto, menu);
+    if (!bebidaMala) break;
+    const disp = bebidasCliente(getActiveMenu() ?? menu ?? {}).join(' o ') || '(ninguna)';
+    const correccion = `🚨 CORRECCIÓN OBLIGATORIA: tu respuesta anterior mencionó/ofreció "${bebidaMala}", que HOY NO está en el menú. La única bebida disponible hoy es: ${disp}. Reescribí tu respuesta SIN ofrecer, mencionar ni proponer "${bebidaMala}" (ni como opción, extra, cambio o incluido). Si el cliente pidió "${bebidaMala}", aclará amable "hoy no tenemos ${bebidaMala}, solo ${disp} 🙂" y seguí. Devolvé SOLO el mensaje corregido al cliente.`;
+    res = await _callLLM({
+      model: MODEL, max_tokens: 800,
+      system: [...system, { type: 'text', text: correccion }],
+      messages,
+    });
+    texto = _textoDe(res);
+  }
+
+  // Último recurso (debería ser rarísimo): si tras los reintentos sigue violando, NO
+  // mandamos la oferta inválida — usamos un fallback seguro y determinista.
+  const bebidaMalaFinal = bebidaNoDisponibleOfrecida(texto, menu);
+  if (bebidaMalaFinal) {
+    const disp = bebidasCliente(getActiveMenu() ?? menu ?? {}).join(' o ') || 'consomé';
+    texto = `Hoy no tenemos ${bebidaMalaFinal} 🙂. La bebida incluida de hoy es ${disp}. ¿Te la dejo así o querés ver el resto del menú?`;
+  }
+
+  return { texto, usage: usageTotal };
 }
