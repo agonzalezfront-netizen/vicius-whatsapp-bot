@@ -401,6 +401,94 @@ export function bebidaNoDisponibleOfrecida(texto, menu) {
   return null;
 }
 
+// ── Generalización del guard a TODO el menú (Alberto/Cortex 2026-06-20) ──
+// El caso "bebida en texto" (arriba) cubre un universo CERRADO {jugo, consomé}.
+// Para el resto del menú no hay universo cerrado de "lo no disponible" en texto
+// libre (haría falta un catálogo maestro del repertorio, hoy PENDIENTE de Alberto).
+// Pero el <<PEDIDO>> que el bot emite es ESTRUCTURADO → podemos validarlo al 100%
+// contra el menú del día: ningún ítem que se CONFIRME/COBRE puede estar fuera del
+// menú. Cubre platos, bebidas y extras (lo que genera daño real: cobrar/preparar
+// algo inexistente). Los acompañamientos incluidos se omiten a propósito: son
+// gratis, de bajo riesgo y con alta varianza de fraseo (evita falsos positivos
+// que rechacen un pedido válido — el otro error que el piloto no puede tener).
+
+function _parsePedido(texto) {
+  const m = (texto ?? '').match(/<<PEDIDO>>([\s\S]*?)<<FIN>>/);
+  if (!m) return null;
+  try { return JSON.parse(m[1].trim()); } catch { return null; }
+}
+
+// Lo disponible HOY por categoría, normalizado.
+function _disponiblesMenu(menu) {
+  const am = getActiveMenu() ?? menu ?? {};
+  return {
+    platos: [
+      ...(am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => _norm(p?.nombre)),
+      ...(am.platos_especiales ?? []).map((e) => _norm(e?.nombre)),
+    ].filter(Boolean),
+    extras: (am.extras_pagados ?? []).map((e) => _norm(e?.nombre)).filter(Boolean),
+    bebidas: bebidasCliente(am).map(_norm).filter(Boolean),
+  };
+}
+
+// inclusión bidireccional: el ítem matchea si comparte el nombre con algo de la lista.
+function _matchLista(itemNorm, lista) {
+  return !!itemNorm && lista.some((x) => x && (itemNorm.includes(x) || x.includes(itemNorm)));
+}
+
+// Devuelve {categoria, item} del PRIMER ítem del pedido que HOY no está disponible, o null.
+export function pedidoItemNoDisponible(pedido, menu) {
+  if (!pedido || !Array.isArray(pedido.items)) return null;
+  const d = _disponiblesMenu(menu);
+  for (const it of pedido.items) {
+    if (it?.proteina) {
+      const p = _norm(it.proteina);
+      if (p && !_matchLista(p, d.platos)) return { categoria: 'plato', item: it.proteina };
+    }
+    if (it?.bebida) {
+      const b = _norm(it.bebida);
+      if (b && !_matchLista(b, d.bebidas)) return { categoria: 'bebida', item: it.bebida };
+    }
+    for (const ex of it?.extras ?? []) {
+      const e = _norm(ex);
+      if (!e) continue;
+      // "jugo extra" / "consomé extra": válido SOLO si esa bebida está hoy.
+      const kw = e.includes('jugo') ? 'jugo' : e.includes('consome') ? 'consome' : null;
+      if (kw) {
+        if (!d.bebidas.some((x) => x.includes(kw))) return { categoria: 'bebida extra', item: ex };
+      } else if (!_matchLista(e, d.extras)) {
+        return { categoria: 'extra', item: ex };
+      }
+    }
+  }
+  return null;
+}
+
+// Combinador: detecta CUALQUIER violación de menú en la respuesta (bebida en texto
+// O ítem fuera de menú en el <<PEDIDO>>). Devuelve {tipo, item, categoria?} o null.
+export function menuViolation(texto, menu) {
+  const beb = bebidaNoDisponibleOfrecida(texto, menu);
+  if (beb) return { tipo: 'bebida_texto', item: beb };
+  const ped = pedidoItemNoDisponible(_parsePedido(texto), menu);
+  if (ped) return { tipo: 'pedido', item: ped.item, categoria: ped.categoria };
+  return null;
+}
+
+// Nota de corrección para reinyectar al LLM según el tipo de violación.
+function _correccionMenu(v, menu) {
+  const am = getActiveMenu() ?? menu ?? {};
+  const bebidas = bebidasCliente(am).join(' o ') || '(ninguna)';
+  if (v.tipo === 'bebida_texto') {
+    return `🚨 CORRECCIÓN OBLIGATORIA: tu respuesta anterior mencionó/ofreció "${v.item}", bebida que HOY NO está en el menú. La única disponible hoy es: ${bebidas}. Reescribí SIN ofrecer, mencionar ni proponer "${v.item}" (ni como opción, extra, cambio o incluido). Si el cliente la pidió, aclará "hoy no tenemos ${v.item}, solo ${bebidas} 🙂". Devolvé SOLO el mensaje corregido.`;
+  }
+  const platos = [
+    ...(am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => p?.nombre),
+    ...(am.platos_especiales ?? []).map((e) => e?.nombre),
+  ].filter(Boolean).join(', ') || '—';
+  const extras = (am.extras_pagados ?? []).map((e) => e?.nombre).filter(Boolean).join(', ') || 'ninguno';
+  return `🚨 CORRECCIÓN OBLIGATORIA: tu <<PEDIDO>> incluye "${v.item}" (${v.categoria}) que HOY NO está en el menú. Disponible hoy → platos: ${platos}; extras pagados: ${extras}; bebida incluida: ${bebidas}. Reescribí SIN "${v.item}": ofrecé solo lo disponible; si el cliente lo pidió explícito, aclará "hoy no tenemos ${v.item}" 🙂. Reemití el bloque <<PEDIDO>> SIN ese ítem (con el nombre EXACTO del menú).`;
+}
+
 async function _callLLM(payload) {
   let res, lastErr;
   for (let intento = 1; intento <= 3; intento++) {
@@ -437,27 +525,33 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
   let res = await _callLLM({ model: MODEL, max_tokens: 800, system, messages });
   let texto = _textoDe(res);
 
-  // Guard determinista: si ofrece una bebida no disponible, regenerar con corrección.
+  // Guard determinista (todo el menú): si ofrece/confirma algo fuera del menú del
+  // día —bebida en texto o ítem en el <<PEDIDO>>— regenerar con corrección.
   let usageTotal = res.usage;
   for (let intento = 1; intento <= 2; intento++) {
-    const bebidaMala = bebidaNoDisponibleOfrecida(texto, menu);
-    if (!bebidaMala) break;
-    const disp = bebidasCliente(getActiveMenu() ?? menu ?? {}).join(' o ') || '(ninguna)';
-    const correccion = `🚨 CORRECCIÓN OBLIGATORIA: tu respuesta anterior mencionó/ofreció "${bebidaMala}", que HOY NO está en el menú. La única bebida disponible hoy es: ${disp}. Reescribí tu respuesta SIN ofrecer, mencionar ni proponer "${bebidaMala}" (ni como opción, extra, cambio o incluido). Si el cliente pidió "${bebidaMala}", aclará amable "hoy no tenemos ${bebidaMala}, solo ${disp} 🙂" y seguí. Devolvé SOLO el mensaje corregido al cliente.`;
+    const v = menuViolation(texto, menu);
+    if (!v) break;
     res = await _callLLM({
       model: MODEL, max_tokens: 800,
-      system: [...system, { type: 'text', text: correccion }],
+      system: [...system, { type: 'text', text: _correccionMenu(v, menu) }],
       messages,
     });
     texto = _textoDe(res);
   }
 
   // Último recurso (debería ser rarísimo): si tras los reintentos sigue violando, NO
-  // mandamos la oferta inválida — usamos un fallback seguro y determinista.
-  const bebidaMalaFinal = bebidaNoDisponibleOfrecida(texto, menu);
-  if (bebidaMalaFinal) {
+  // mandamos la oferta/pedido inválido — fallback seguro y determinista. Para una
+  // violación del PEDIDO recortamos el bloque (no se crea un pedido fantasma) y
+  // derivamos al local.
+  const vFinal = menuViolation(texto, menu);
+  if (vFinal) {
     const disp = bebidasCliente(getActiveMenu() ?? menu ?? {}).join(' o ') || 'consomé';
-    texto = `Hoy no tenemos ${bebidaMalaFinal} 🙂. La bebida incluida de hoy es ${disp}. ¿Te la dejo así o querés ver el resto del menú?`;
+    if (vFinal.tipo === 'bebida_texto') {
+      texto = `Hoy no tenemos ${vFinal.item} 🙂. La bebida incluida de hoy es ${disp}. ¿Te la dejo así o querés ver el resto del menú?`;
+    } else {
+      texto = texto.replace(/<<PEDIDO>>[\s\S]*?<<FIN>>/g, '').trim();
+      texto = `Disculpá, déjame confirmar la disponibilidad de "${vFinal.item}" con el local y te aviso enseguida 🙂.`;
+    }
   }
 
   return { texto, usage: usageTotal };
