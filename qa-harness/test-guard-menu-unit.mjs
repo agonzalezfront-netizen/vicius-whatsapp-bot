@@ -49,7 +49,7 @@ check('proteína marcada NO disponible hoy (Pescado frito)', v?.categoria === 'p
 v = pedidoItemNoDisponible(ped([{ proteina: 'Carne mechada', bebida: 'jugo', extras: [] }]));
 check('bebida fuera de menú (jugo cuando solo hay consomé)', v?.categoria === 'bebida');
 v = pedidoItemNoDisponible(ped([{ proteina: 'Carne mechada', bebida: 'consomé', extras: ['jugo extra'] }]));
-check('bebida extra no disponible (jugo extra)', v?.categoria === 'bebida extra');
+check('bebida extra no disponible (jugo extra)', v?.categoria === 'bebida' && /jugo/i.test(v.item));
 v = pedidoItemNoDisponible(ped([{ proteina: 'Carne mechada', bebida: 'consomé', extras: ['Tostones al ajillo'] }]));
 check('extra pagado fuera de menú (Tostones)', v?.categoria === 'extra');
 
@@ -124,6 +124,29 @@ check('TEXTO con acompañamientos activos (arroz, frijoles) → null',
   itemRepertorioOfrecidoEnTexto('Perfecto 🙂 Pollo asado con arroz y frijoles') === null);
 check('menuViolation: "Pollo asado con puré" → item_texto',
   menuViolation('Perfecto 🙂 Pollo asado con puré y arroz', null)?.tipo === 'item_texto');
+
+// ── Mejoras UX (Alberto 2026-06-20): agrupar faltantes + reemplazo same-category ──
+const { menuViolations } = await import('../src/claude.js');
+
+console.log('\n— menuViolations: agrupa TODOS los faltantes de varias categorías —');
+// menú activo de la sección repertorio: hoy proteína=Pollo asado; agregados=Arroz/Frijoles/Tajadas;
+// extras=Papas fritas; bebida=Consomé. Pedimos varios no-hoy a la vez.
+const multi = menuViolations(
+  'Listo 🙂 Carne mechada con puré, también unos Tostones al ajillo y un jugo\n' +
+  '<<PEDIDO>>{"items":[{"proteina":"Carne mechada","agregados":["Puré"],"bebida":"jugo","extras":["Tostones al ajillo"]}]}<<FIN>>',
+  null,
+);
+const cats = new Set(multi.map((v) => v.categoria));
+check('detecta ≥4 faltantes', multi.length >= 4);
+check('incluye plato (Carne mechada)', cats.has('plato'));
+check('incluye acompañamiento (Puré)', cats.has('acompañamiento'));
+check('incluye extra (Tostones)', cats.has('extra'));
+check('incluye bebida (jugo)', cats.has('bebida'));
+
+console.log('\n— Reemplazo de la MISMA categoría (extra detectado como extra, no plato) —');
+const soloExtra = menuViolations('¿Te sumo unos Tostones al ajillo? 🙂', null);
+check('extra no-hoy detectado con categoria extra',
+  soloExtra.length === 1 && soloExtra[0].categoria === 'extra');
 
 console.log(`\n=== UNIT: ${pass} OK, ${fail} FAIL ===`);
 process.exit(fail ? 1 : 0);
