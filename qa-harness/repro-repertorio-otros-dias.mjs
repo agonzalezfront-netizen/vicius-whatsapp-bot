@@ -12,7 +12,10 @@ const { setActiveMenu } = await import('../src/active-menu.js');
 setActiveMenu({
   day_label: 'Martes de prueba',
   day_code: 'M',
-  proteinas_dia: [{ nombre: 'Pollo asado', disponible: true }], // HOY solo pollo asado
+  proteinas_dia: [
+    { nombre: 'Pollo asado', disponible: true },
+    { nombre: 'Pescado empanizado', disponible: true },
+  ], // HOY hay DOS proteínas → al declinar, el bot debe listar AMBAS
   agregados_incluidos: ['arroz', 'puré', 'ensalada'],
   extras_pagados: [{ nombre: 'Papas fritas', precio: 2000 }],
   bebida_incluida: ['Consomé'],
@@ -60,10 +63,20 @@ const pedidoConCarne = !!r.pedido && JSON.stringify(r.pedido).toLowerCase().incl
 
 const bug = (ofreceHoy || pedidoConCarne) && !declina;
 
-console.log('\nofreceHoy=' + ofreceHoy + ' declina=' + declina + ' pedidoConCarne=' + pedidoConCarne);
-console.log(
-  bug
-    ? '❌ BUG (ofrece/agrega carne mechada que HOY no está)'
-    : '✅ correcto (declina "hoy no"; no la ofrece ni la agrega al pedido)'
-);
-process.exit(bug ? 1 : 0);
+// Ajuste Alberto 2026-06-20: al declinar debe LISTAR todas las opciones del día (≥2),
+// no una sola. Hoy hay Pollo asado Y Pescado empanizado → ambas deben aparecer.
+const listaPollo = /pollo/.test(t);
+const listaPescado = /pescado/.test(t);
+const listaAmbas = listaPollo && listaPescado;
+
+console.log('\nofreceHoy=' + ofreceHoy + ' declina=' + declina + ' pedidoConCarne=' + pedidoConCarne + ' listaAmbas=' + listaAmbas + ' (pollo=' + listaPollo + ' pescado=' + listaPescado + ')');
+if (bug) {
+  console.log('❌ BUG (ofrece/agrega carne mechada que HOY no está)');
+  process.exit(1);
+}
+if (!listaAmbas) {
+  console.log('⚠️ declina OK pero NO listó todas las opciones del día (ajuste Alberto)');
+  process.exit(2);
+}
+console.log('✅ correcto (declina "hoy no" + lista TODAS las opciones del día; no agrega al pedido)');
+process.exit(0);

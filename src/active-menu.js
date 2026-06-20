@@ -251,7 +251,7 @@ ${proteinas}
 ${especialesStr}
   🚨 TODOS estos especiales están DISPONIBLES HOY (la dueña los activó para hoy). La descripción entre guiones es texto informativo del catálogo (ej. "Solo domingos" describe su día típico) — NUNCA la uses para negar disponibilidad ni rechazar el pedido: si figura acá, se vende HOY.` : ''}${repertorioStr ? `
 - REPERTORIO (el local los ofrece OTROS días, HOY NO están): ${repertorioStr}
-  🚨 Estos ítems EXISTEN pero HOY NO se venden. Si el cliente pide uno, NO lo ofrezcas como disponible hoy y NO lo agregues al pedido — decí amable "hoy no tenemos [ítem], pero otros días sí 🙂" y ofrecé lo de hoy. Tampoco digas que "no existe" (sí existe, otro día). Solo HOY no.` : ''}
+  🚨 Estos ítems EXISTEN pero HOY NO se venden. Si el cliente pide uno, NO lo ofrezcas como disponible hoy y NO lo agregues al pedido. Declinalo así: "hoy no tenemos [ítem], pero otros días sí 🙂" e INMEDIATAMENTE listá TODAS las opciones que SÍ hay hoy (todas las proteínas del día + especiales si hay), no una sola — ej: "hoy tenemos ${proteinas.replace(/^- /gm, '').split('\n').join(', ')}". Que el cliente vea el abanico completo del día. Tampoco digas que "no existe" (sí existe, otro día). Solo HOY no.` : ''}
 
 REGLA PARA EL BOT: usá estos datos exactos del menú del día. Ignorá el menú de fallback.`;
 }

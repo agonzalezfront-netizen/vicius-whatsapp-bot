@@ -360,7 +360,7 @@ NUNCA inventes una respuesta para estos casos. Mejor derivar que improvisar mal.
 
 REGLAS DURAS
 - Si el cliente pregunta algo que NO está en el menú ni en INFO DEL LOCAL: "Déjame consultarle a la pareja y vuelvo en un ratito" — NO inventes información.
-- Si el cliente pide un plato específico que NO está en el menú de hoy: "Hoy no tenemos eso, pero te recomiendo el plato del día que sí tenemos: [nombre]".
+- Si el cliente pide un plato específico que NO está en el menú de hoy: "Hoy no tenemos eso, pero hoy tenemos: [LISTÁ TODAS las proteínas/opciones del día, no una sola]". Mostrale el abanico completo del día para que elija.
 - NUNCA prometas un horario, precio o producto que no esté en el menú activo o en INFO DEL LOCAL.
 - Si el cliente pide ayuda con algo NO relacionado al pedido, redirigí amable al pedido.
 - Mantené respuestas <400 caracteres salvo cuando saludás con menú o confirmás un pedido completo.${menuFallback}`;
@@ -537,7 +537,11 @@ function _correccionMenu(v, menu) {
     return `🚨 CORRECCIÓN OBLIGATORIA: tu respuesta anterior mencionó/ofreció "${v.item}", bebida que HOY NO está en el menú. La única disponible hoy es: ${bebidas}. Reescribí SIN ofrecer, mencionar ni proponer "${v.item}" (ni como opción, extra, cambio o incluido). Si el cliente la pidió, aclará "hoy no tenemos ${v.item}, solo ${bebidas} 🙂". Devolvé SOLO el mensaje corregido.`;
   }
   if (v.tipo === 'item_texto') {
-    return `🚨 CORRECCIÓN OBLIGATORIA: ofreciste "${v.item}" como disponible HOY, pero HOY NO está en el menú (sí está en el repertorio del local, otros días). Reescribí SIN ofrecerlo hoy; si el cliente lo pidió, decí amable "hoy no tenemos ${v.item}, pero otros días sí 🙂" y ofrecé lo de hoy. NO lo agregues al pedido. Devolvé SOLO el mensaje corregido.`;
+    const platosHoy = [
+      ...(am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => p?.nombre),
+      ...(am.platos_especiales ?? []).map((e) => e?.nombre),
+    ].filter(Boolean).join(', ') || 'lo del día';
+    return `🚨 CORRECCIÓN OBLIGATORIA: ofreciste "${v.item}" como disponible HOY, pero HOY NO está en el menú (sí está en el repertorio del local, otros días). Reescribí SIN ofrecerlo hoy; si el cliente lo pidió, decí amable "hoy no tenemos ${v.item}, pero otros días sí 🙂" e INMEDIATAMENTE listá TODAS las opciones que SÍ hay hoy (no una sola): ${platosHoy}. NO lo agregues al pedido. Devolvé SOLO el mensaje corregido.`;
   }
   const existe = enRepertorio(v.item, menu);
   const notaExiste = existe
@@ -611,8 +615,16 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
     if (vFinal.tipo === 'bebida_texto') {
       texto = `Hoy no tenemos ${vFinal.item} 🙂. La bebida incluida de hoy es ${disp}. ¿Te la dejo así o querés ver el resto del menú?`;
     } else if (vFinal.tipo === 'item_texto') {
-      // Existe en el repertorio, pero hoy no → safe canned que no niega que exista.
-      texto = `Hoy no tenemos ${vFinal.item} 🙂, pero otros días sí. ¿Te muestro lo que tenemos hoy?`;
+      // Existe en el repertorio, pero hoy no → safe canned que no niega que exista y
+      // lista TODAS las opciones del día (no una sola).
+      const am = getActiveMenu() ?? menu ?? {};
+      const platosHoy = [
+        ...(am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => p?.nombre),
+        ...(am.platos_especiales ?? []).map((e) => e?.nombre),
+      ].filter(Boolean).join(', ');
+      texto = platosHoy
+        ? `Hoy no tenemos ${vFinal.item} 🙂, pero otros días sí. Hoy tenemos: ${platosHoy}. ¿Qué te gustaría?`
+        : `Hoy no tenemos ${vFinal.item} 🙂, pero otros días sí. ¿Te muestro el menú de hoy?`;
     } else {
       // Pedido con ítem fuera de menú → no creamos pedido fantasma; derivamos.
       texto = texto.replace(/<<PEDIDO>>[\s\S]*?<<FIN>>/g, '').trim();
