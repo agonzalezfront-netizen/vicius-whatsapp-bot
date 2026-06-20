@@ -73,7 +73,7 @@ const { enRepertorio, itemRepertorioOfrecidoEnTexto } = await import('../src/cla
 setActiveMenu({
   day_label: 'Test rep', day_code: 'M',
   proteinas_dia: [{ nombre: 'Pollo asado', disponible: true }], // HOY solo pollo asado
-  agregados_incluidos: ['arroz', 'puré'],
+  agregados_incluidos: ['Arroz', 'Frijoles', 'Tajadas'], // HOY: puré NO está (como el bug real)
   extras_pagados: [{ nombre: 'Papas fritas', precio: 2000 }],
   bebida_incluida: ['Consomé'],
   platos_especiales: [],
@@ -81,7 +81,7 @@ setActiveMenu({
   published_at: new Date().toISOString(),
   repertorio: {
     proteinas: ['Pollo asado', 'Carne mechada', 'Pescado empanizado'],
-    agregados: ['arroz', 'puré', 'ensalada', 'tajadas'],
+    agregados: ['Arroz', 'Puré', 'Ensalada', 'Tajadas', 'Frijoles'], // puré en repertorio, no hoy
     extras: [{ nombre: 'Papas fritas', precio: 2000 }, { nombre: 'Tostones al ajillo', precio: 2000 }],
     bebidas: ['Jugo natural', 'Consomé'],
     especiales: [{ nombre: 'Pabellón criollo', precio: 9000, desc: '' }],
@@ -104,9 +104,26 @@ console.log('\n— Repertorio: NO violación cuando declina o cuando está activ
 check('declina correctamente ("hoy no tenemos carne mechada") → null',
   itemRepertorioOfrecidoEnTexto('Uff, hoy no tenemos carne mechada, pero otros días sí 🙂') === null);
 check('ofrece Pollo asado (activo hoy) → null',
-  itemRepertorioOfrecidoEnTexto('Hoy tenemos Pollo asado con arroz y puré 🙂') === null);
+  itemRepertorioOfrecidoEnTexto('Hoy tenemos Pollo asado con arroz y frijoles 🙂') === null);
 check('menuViolation: ofrecer Carne mechada hoy → tipo item_texto',
   menuViolation('Te recomiendo la Carne mechada de hoy 🙂', null)?.tipo === 'item_texto');
+
+console.log('\n— Acompañamientos (bug del puré, Alberto 2026-06-20) —');
+// PEDIDO con acompañamiento no-hoy
+let vp;
+vp = pedidoItemNoDisponible(ped([{ proteina: 'Pollo asado', agregados: ['Arroz', 'Puré'], bebida: 'consomé', extras: [] }]));
+check('PEDIDO con puré (no hoy) → viol acompañamiento', vp?.categoria === 'acompañamiento' && /pur/i.test(vp.item));
+check('PEDIDO con agregados activos (Arroz, Frijoles) → null',
+  pedidoItemNoDisponible(ped([{ proteina: 'Pollo asado', agregados: ['Arroz', 'Frijoles'], bebida: 'consomé', extras: [] }])) === null);
+check('PEDIDO con "Tajadas" (activo, variante mayúsc) → null',
+  pedidoItemNoDisponible(ped([{ proteina: 'Pollo asado', agregados: ['tajadas'], bebida: 'consomé', extras: [] }])) === null);
+// TEXTO: "anotado con puré" (antes del PEDIDO) — el caso exacto del bug
+r = itemRepertorioOfrecidoEnTexto('Perfecto 🙂 Pollo asado con puré y arroz');
+check('TEXTO ofrece puré (no hoy) → viol', /pur/i.test(r?.item || ''));
+check('TEXTO con acompañamientos activos (arroz, frijoles) → null',
+  itemRepertorioOfrecidoEnTexto('Perfecto 🙂 Pollo asado con arroz y frijoles') === null);
+check('menuViolation: "Pollo asado con puré" → item_texto',
+  menuViolation('Perfecto 🙂 Pollo asado con puré y arroz', null)?.tipo === 'item_texto');
 
 console.log(`\n=== UNIT: ${pass} OK, ${fail} FAIL ===`);
 process.exit(fail ? 1 : 0);

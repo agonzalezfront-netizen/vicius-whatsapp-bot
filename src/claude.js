@@ -428,6 +428,7 @@ function _disponiblesMenu(menu) {
     ].filter(Boolean),
     extras: (am.extras_pagados ?? []).map((e) => _norm(e?.nombre)).filter(Boolean),
     bebidas: bebidasCliente(am).map(_norm).filter(Boolean),
+    agregados: (am.agregados_incluidos ?? []).map(_norm).filter(Boolean),
   };
 }
 
@@ -448,6 +449,10 @@ export function pedidoItemNoDisponible(pedido, menu) {
     if (it?.bebida) {
       const b = _norm(it.bebida);
       if (b && !_matchLista(b, d.bebidas)) return { categoria: 'bebida', item: it.bebida };
+    }
+    for (const ag of it?.agregados ?? []) {
+      const a = _norm(ag);
+      if (a && !_matchLista(a, d.agregados)) return { categoria: 'acompañamiento', item: ag };
     }
     for (const ex of it?.extras ?? []) {
       const e = _norm(ex);
@@ -494,9 +499,10 @@ export function itemRepertorioOfrecidoEnTexto(texto, menu) {
   if (!rep) return null;
   const t = _norm(texto);
   const d = _disponiblesMenu(menu);
-  const activos = [...d.platos, ...d.extras];
+  const activos = [...d.platos, ...d.extras, ...d.agregados];
   const candidatos = [
     ...(rep.proteinas ?? []),
+    ...(rep.agregados ?? []),
     ...(rep.extras ?? []).map((e) => e?.nombre),
     ...(rep.especiales ?? []).map((e) => e?.nombre),
   ].filter(Boolean);
@@ -541,7 +547,8 @@ function _correccionMenu(v, menu) {
       ...(am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => p?.nombre),
       ...(am.platos_especiales ?? []).map((e) => e?.nombre),
     ].filter(Boolean).join(', ') || 'lo del día';
-    return `🚨 CORRECCIÓN OBLIGATORIA: ofreciste "${v.item}" como disponible HOY, pero HOY NO está en el menú (sí está en el repertorio del local, otros días). Reescribí SIN ofrecerlo hoy; si el cliente lo pidió, decí amable "hoy no tenemos ${v.item}, pero otros días sí 🙂" e INMEDIATAMENTE listá TODAS las opciones que SÍ hay hoy (no una sola): ${platosHoy}. NO lo agregues al pedido. Devolvé SOLO el mensaje corregido.`;
+    const agregadosHoy = (am.agregados_incluidos ?? []).join(', ') || '—';
+    return `🚨 CORRECCIÓN OBLIGATORIA: ofreciste "${v.item}" como disponible HOY, pero HOY NO está en el menú (sí está en el repertorio del local, otros días). Reescribí SIN ofrecerlo hoy; si el cliente lo pidió, decí amable "hoy no tenemos ${v.item}, pero otros días sí 🙂" e INMEDIATAMENTE listá lo que SÍ hay hoy (no una sola opción) → platos: ${platosHoy}; acompañamientos: ${agregadosHoy}. NO lo agregues al pedido. Devolvé SOLO el mensaje corregido.`;
   }
   const existe = enRepertorio(v.item, menu);
   const notaExiste = existe
@@ -552,7 +559,8 @@ function _correccionMenu(v, menu) {
     ...(am.platos_especiales ?? []).map((e) => e?.nombre),
   ].filter(Boolean).join(', ') || '—';
   const extras = (am.extras_pagados ?? []).map((e) => e?.nombre).filter(Boolean).join(', ') || 'ninguno';
-  return `🚨 CORRECCIÓN OBLIGATORIA: tu <<PEDIDO>> incluye "${v.item}" (${v.categoria}) que HOY NO está en el menú${notaExiste}. Disponible hoy → platos: ${platos}; extras pagados: ${extras}; bebida incluida: ${bebidas}. Reescribí SIN "${v.item}": ofrecé solo lo disponible; si el cliente lo pidió explícito, aclará "hoy no tenemos ${v.item}" 🙂. Reemití el bloque <<PEDIDO>> SIN ese ítem (con el nombre EXACTO del menú).`;
+  const agregados = (am.agregados_incluidos ?? []).join(', ') || '—';
+  return `🚨 CORRECCIÓN OBLIGATORIA: tu <<PEDIDO>> incluye "${v.item}" (${v.categoria}) que HOY NO está en el menú${notaExiste}. Disponible hoy → platos: ${platos}; acompañamientos: ${agregados}; extras pagados: ${extras}; bebida incluida: ${bebidas}. Reescribí SIN "${v.item}": ofrecé solo lo disponible; si el cliente lo pidió explícito, aclará "hoy no tenemos ${v.item}, los de hoy son [los de arriba] 🙂". Reemití el bloque <<PEDIDO>> SIN ese ítem (con el nombre EXACTO del menú).`;
 }
 
 async function _callLLM(payload) {
