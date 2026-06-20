@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { Agent } from 'undici';
 import { renderMenuForPrompt } from './menu.js';
-import { getActiveMenu, renderActiveMenuForPrompt, bebidasCliente } from './active-menu.js';
+import { getActiveMenu, getRepertorio, renderActiveMenuForPrompt, bebidasCliente } from './active-menu.js';
 
 const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
 const TZ = process.env.TZ ?? 'America/Santiago';
@@ -464,11 +464,66 @@ export function pedidoItemNoDisponible(pedido, menu) {
   return null;
 }
 
-// Combinador: detecta CUALQUIER violación de menú en la respuesta (bebida en texto
-// O ítem fuera de menú en el <<PEDIDO>>). Devuelve {tipo, item, categoria?} o null.
+function _esc(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ¿"nombre" está en el repertorio (lo ofrece el local ALGÚN día)? Distingue
+// "hoy no pero existe" de "no existe" (anti-alucinación). Null si no hay repertorio.
+export function enRepertorio(nombre, menu) {
+  const rep = getRepertorio();
+  if (!rep) return null;
+  const n = _norm(nombre);
+  if (!n) return false;
+  const todos = [
+    ...(rep.proteinas ?? []),
+    ...(rep.agregados ?? []),
+    ...(rep.extras ?? []).map((e) => e?.nombre),
+    ...(rep.bebidas ?? []),
+    ...(rep.especiales ?? []).map((e) => e?.nombre),
+  ].map(_norm).filter(Boolean);
+  return _matchLista(n, todos);
+}
+
+// Ítem del repertorio (plato/extra/especial) que la respuesta ofrece en TEXTO como
+// disponible HOY sin declinarlo. Con el repertorio, el texto libre pasa a universo
+// CERRADO (mismo mecanismo que bebidas). Solo corre si hay repertorio cargado.
+// Las bebidas las maneja bebidaNoDisponibleOfrecida (no se duplican acá).
+export function itemRepertorioOfrecidoEnTexto(texto, menu) {
+  const rep = getRepertorio();
+  if (!rep) return null;
+  const t = _norm(texto);
+  const d = _disponiblesMenu(menu);
+  const activos = [...d.platos, ...d.extras];
+  const candidatos = [
+    ...(rep.proteinas ?? []),
+    ...(rep.extras ?? []).map((e) => e?.nombre),
+    ...(rep.especiales ?? []).map((e) => e?.nombre),
+  ].filter(Boolean);
+  for (const nombre of candidatos) {
+    const n = _norm(nombre);
+    if (!n || n.length < 4) continue;        // nombres muy cortos → ambiguos, los saltamos
+    if (_matchLista(n, activos)) continue;   // está activo hoy → ok
+    if (!t.includes(n)) continue;            // no se menciona → ok
+    // Se menciona un ítem que HOY no está. OK solo si lo declina (negación pegada al ítem).
+    const e = _esc(n);
+    const declina = new RegExp(
+      `(no (tenemos|hay|queda|contamos con)|hoy no (hay|tenemos)|ya no (hay|tenemos|queda)|sin)\\s+(m[áa]s\\s+)?${e}` +
+      `|${e}\\s+(no (lo )?(tenemos|hay|queda)|se acab|no est[áa] disponible|es (para |de )?otros? d[íi]as|reci[eé]n|vuelve)`,
+    ).test(t);
+    if (!declina) return { categoria: 'ítem', item: nombre };
+  }
+  return null;
+}
+
+// Combinador: detecta CUALQUIER violación de menú en la respuesta — bebida en texto,
+// ítem del repertorio ofrecido en texto, o ítem fuera de menú en el <<PEDIDO>>.
+// Devuelve {tipo, item, categoria?} o null.
 export function menuViolation(texto, menu) {
   const beb = bebidaNoDisponibleOfrecida(texto, menu);
   if (beb) return { tipo: 'bebida_texto', item: beb };
+  const it = itemRepertorioOfrecidoEnTexto(texto, menu);
+  if (it) return { tipo: 'item_texto', item: it.item, categoria: it.categoria };
   const ped = pedidoItemNoDisponible(_parsePedido(texto), menu);
   if (ped) return { tipo: 'pedido', item: ped.item, categoria: ped.categoria };
   return null;
@@ -481,12 +536,19 @@ function _correccionMenu(v, menu) {
   if (v.tipo === 'bebida_texto') {
     return `🚨 CORRECCIÓN OBLIGATORIA: tu respuesta anterior mencionó/ofreció "${v.item}", bebida que HOY NO está en el menú. La única disponible hoy es: ${bebidas}. Reescribí SIN ofrecer, mencionar ni proponer "${v.item}" (ni como opción, extra, cambio o incluido). Si el cliente la pidió, aclará "hoy no tenemos ${v.item}, solo ${bebidas} 🙂". Devolvé SOLO el mensaje corregido.`;
   }
+  if (v.tipo === 'item_texto') {
+    return `🚨 CORRECCIÓN OBLIGATORIA: ofreciste "${v.item}" como disponible HOY, pero HOY NO está en el menú (sí está en el repertorio del local, otros días). Reescribí SIN ofrecerlo hoy; si el cliente lo pidió, decí amable "hoy no tenemos ${v.item}, pero otros días sí 🙂" y ofrecé lo de hoy. NO lo agregues al pedido. Devolvé SOLO el mensaje corregido.`;
+  }
+  const existe = enRepertorio(v.item, menu);
+  const notaExiste = existe
+    ? ` (existe en el repertorio pero HOY no — podés aclarar "hoy no tenemos ${v.item}, otros días sí")`
+    : ` (no figura en el repertorio — si el cliente insiste, derivá al local en vez de inventar)`;
   const platos = [
     ...(am.proteinas_dia ?? []).filter((p) => p?.disponible !== false).map((p) => p?.nombre),
     ...(am.platos_especiales ?? []).map((e) => e?.nombre),
   ].filter(Boolean).join(', ') || '—';
   const extras = (am.extras_pagados ?? []).map((e) => e?.nombre).filter(Boolean).join(', ') || 'ninguno';
-  return `🚨 CORRECCIÓN OBLIGATORIA: tu <<PEDIDO>> incluye "${v.item}" (${v.categoria}) que HOY NO está en el menú. Disponible hoy → platos: ${platos}; extras pagados: ${extras}; bebida incluida: ${bebidas}. Reescribí SIN "${v.item}": ofrecé solo lo disponible; si el cliente lo pidió explícito, aclará "hoy no tenemos ${v.item}" 🙂. Reemití el bloque <<PEDIDO>> SIN ese ítem (con el nombre EXACTO del menú).`;
+  return `🚨 CORRECCIÓN OBLIGATORIA: tu <<PEDIDO>> incluye "${v.item}" (${v.categoria}) que HOY NO está en el menú${notaExiste}. Disponible hoy → platos: ${platos}; extras pagados: ${extras}; bebida incluida: ${bebidas}. Reescribí SIN "${v.item}": ofrecé solo lo disponible; si el cliente lo pidió explícito, aclará "hoy no tenemos ${v.item}" 🙂. Reemití el bloque <<PEDIDO>> SIN ese ítem (con el nombre EXACTO del menú).`;
 }
 
 async function _callLLM(payload) {
@@ -548,7 +610,11 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
     const disp = bebidasCliente(getActiveMenu() ?? menu ?? {}).join(' o ') || 'consomé';
     if (vFinal.tipo === 'bebida_texto') {
       texto = `Hoy no tenemos ${vFinal.item} 🙂. La bebida incluida de hoy es ${disp}. ¿Te la dejo así o querés ver el resto del menú?`;
+    } else if (vFinal.tipo === 'item_texto') {
+      // Existe en el repertorio, pero hoy no → safe canned que no niega que exista.
+      texto = `Hoy no tenemos ${vFinal.item} 🙂, pero otros días sí. ¿Te muestro lo que tenemos hoy?`;
     } else {
+      // Pedido con ítem fuera de menú → no creamos pedido fantasma; derivamos.
       texto = texto.replace(/<<PEDIDO>>[\s\S]*?<<FIN>>/g, '').trim();
       texto = `Disculpá, déjame confirmar la disponibilidad de "${vFinal.item}" con el local y te aviso enseguida 🙂.`;
     }

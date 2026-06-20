@@ -67,5 +67,46 @@ check('texto limpio + pedido válido → null',
 check('texto limpio + pedido con plato fantasma → viol pedido',
   menuViolation('Listo, anotado 🙂\n<<PEDIDO>>{"items":[{"proteina":"Lasaña","bebida":"consomé","extras":[]}]}<<FIN>>', null)?.tipo === 'pedido');
 
+// ── Repertorio dinámico (3 casos) ────────────────────────────────────────────
+const { enRepertorio, itemRepertorioOfrecidoEnTexto } = await import('../src/claude.js');
+
+setActiveMenu({
+  day_label: 'Test rep', day_code: 'M',
+  proteinas_dia: [{ nombre: 'Pollo asado', disponible: true }], // HOY solo pollo asado
+  agregados_incluidos: ['arroz', 'puré'],
+  extras_pagados: [{ nombre: 'Papas fritas', precio: 2000 }],
+  bebida_incluida: ['Consomé'],
+  platos_especiales: [],
+  price_typical: 7000,
+  published_at: new Date().toISOString(),
+  repertorio: {
+    proteinas: ['Pollo asado', 'Carne mechada', 'Pescado empanizado'],
+    agregados: ['arroz', 'puré', 'ensalada', 'tajadas'],
+    extras: [{ nombre: 'Papas fritas', precio: 2000 }, { nombre: 'Tostones al ajillo', precio: 2000 }],
+    bebidas: ['Jugo natural', 'Consomé'],
+    especiales: [{ nombre: 'Pabellón criollo', precio: 9000, desc: '' }],
+  },
+});
+
+console.log('\n— Repertorio: enRepertorio (existe / no existe) —');
+check('Carne mechada está en repertorio', enRepertorio('Carne mechada') === true);
+check('Pabellón criollo está en repertorio', enRepertorio('Pabellón criollo') === true);
+check('Lasaña NO está en repertorio', enRepertorio('Lasaña') === false);
+
+console.log('\n— Repertorio: oferta en texto de ítem no-activo-hoy → violación —');
+let r;
+r = itemRepertorioOfrecidoEnTexto('¡Buenísimo! Hoy también tenemos Carne mechada riquísima 🙂');
+check('ofrece Carne mechada (en repertorio, no hoy) → viol', r?.item === 'Carne mechada');
+r = itemRepertorioOfrecidoEnTexto('¿Le sumo unos Tostones al ajillo a $2.000?');
+check('ofrece Tostones (extra de repertorio, no hoy) → viol', /tostones/i.test(r?.item || ''));
+
+console.log('\n— Repertorio: NO violación cuando declina o cuando está activo hoy —');
+check('declina correctamente ("hoy no tenemos carne mechada") → null',
+  itemRepertorioOfrecidoEnTexto('Uff, hoy no tenemos carne mechada, pero otros días sí 🙂') === null);
+check('ofrece Pollo asado (activo hoy) → null',
+  itemRepertorioOfrecidoEnTexto('Hoy tenemos Pollo asado con arroz y puré 🙂') === null);
+check('menuViolation: ofrecer Carne mechada hoy → tipo item_texto',
+  menuViolation('Te recomiendo la Carne mechada de hoy 🙂', null)?.tipo === 'item_texto');
+
 console.log(`\n=== UNIT: ${pass} OK, ${fail} FAIL ===`);
 process.exit(fail ? 1 : 0);
