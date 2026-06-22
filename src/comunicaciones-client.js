@@ -93,3 +93,14 @@ export async function marcarSalienteEnviado(id, waMessageId) {
   if (!res.ok) throw new Error(`marcarSalienteEnviado HTTP ${res.status}`);
   return res.json();
 }
+
+// Fase 3 — barrido de timeouts del handoff: conversaciones en requiere_humano/en_atención
+// inactivas ~25min → el wizard las devuelve al bot (reactivación automática). El bot lo
+// dispara periódicamente (el wizard no tiene scheduler propio).
+export async function barrerTimeouts() {
+  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/barrer-timeouts`, {
+    method: 'POST', headers: _headers(), body: '{}',
+  });
+  if (!res.ok) throw new Error(`barrerTimeouts HTTP ${res.status}`);
+  return res.json();
+}

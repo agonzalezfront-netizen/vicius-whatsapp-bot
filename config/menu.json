@@ -35,12 +35,12 @@
     "delivery_foraneo_precio_max": 4000
   },
   "horario": {
-    "lunes":    { "abre": "12:00", "cierra": "22:00" },
-    "martes":   { "abre": "12:00", "cierra": "22:00" },
-    "miércoles":{ "abre": "12:00", "cierra": "22:00" },
-    "jueves":   { "abre": "12:00", "cierra": "22:00" },
-    "viernes":  { "abre": "12:00", "cierra": "22:00" },
-    "sábado":   { "abre": "12:00", "cierra": "22:00" },
+    "lunes":    { "abre": "12:00", "cierra": "19:00" },
+    "martes":   { "abre": "12:00", "cierra": "19:00" },
+    "miércoles":{ "abre": "12:00", "cierra": "19:00" },
+    "jueves":   { "abre": "12:00", "cierra": "19:00" },
+    "viernes":  { "abre": "12:00", "cierra": "19:00" },
+    "sábado":   { "abre": "12:00", "cierra": "19:00" },
     "domingo":  { "abre": "12:00", "cierra": "18:00" }
   },
   "_notas_para_bot": {

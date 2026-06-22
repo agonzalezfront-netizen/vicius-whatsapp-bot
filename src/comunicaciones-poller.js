@@ -1,4 +1,4 @@
-import { salientesPendientes, marcarSalienteEnviado } from './comunicaciones-client.js';
+import { salientesPendientes, marcarSalienteEnviado, barrerTimeouts } from './comunicaciones-client.js';
 
 // Handoff v1 Fase 2 — poller del saliente del HUMANO. Espejo del notif-poller: consulta
 // las respuestas que el humano escribió en la bandeja (status 'enviando') y las manda al
@@ -36,6 +36,13 @@ export function startComunicacionesPoller({ getSock, logger }) {
         // no marcamos → se reintenta en el próximo ciclo.
         logger.warn?.({ id: p.id, err: err.message }, 'comunicaciones-poller: fallo al enviar, reintenta luego');
       }
+    }
+    // Fase 3: barrido de timeouts (reactivación automática al bot tras ~25min). Best-effort.
+    try {
+      const b = await barrerTimeouts();
+      if (b?.devueltas?.length) logger.info?.({ devueltas: b.devueltas }, '⏱️ timeout: conversación(es) devuelta(s) al bot');
+    } catch (err) {
+      logger.warn?.({ err: err.message }, 'comunicaciones-poller: barrer-timeouts falló');
     }
   }
 

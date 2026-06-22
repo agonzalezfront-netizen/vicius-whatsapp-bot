@@ -434,6 +434,11 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   if (!estaAbierto(menu)) {
     await sleep(jitterDelay());
     await sendBotMessage(sock, jid, { text: mensajeCerrado() });
+    // Handoff v1 Fase 3: fuera de horario el bot no atiende → la conversación queda en
+    // cola para que Carla/César la vean al abrir (requiere_humano, priorizada en la bandeja).
+    if (COMUNICACIONES) {
+      escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalar fuera-de-horario falló (no crítico)'));
+    }
     logger.info({ jid }, 'fuera de horario, respondido con mensaje de cierre');
     return;
   }
