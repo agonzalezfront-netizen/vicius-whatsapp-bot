@@ -1,4 +1,6 @@
-import { salientesPendientes, marcarSalienteEnviado, barrerTimeouts } from './comunicaciones-client.js';
+import { salientesPendientes, marcarSalienteEnviado, barrerTimeouts, relanzarPendientes, marcarRelanzado } from './comunicaciones-client.js';
+import { sendBotMessage } from './handlers.js';
+import { mensajeRelanzarFlujo } from './claude.js';
 
 // Handoff v1 Fase 2 — poller del saliente del HUMANO. Espejo del notif-poller: consulta
 // las respuestas que el humano escribió en la bandeja (status 'enviando') y las manda al
@@ -11,7 +13,7 @@ import { salientesPendientes, marcarSalienteEnviado, barrerTimeouts } from './co
 
 const POLL_MS = parseInt(process.env.COMUNICACIONES_POLL_MS ?? '8000', 10);
 
-export function startComunicacionesPoller({ getSock, logger }) {
+export function startComunicacionesPoller({ getSock, logger, menu }) {
   async function tick() {
     const sock = getSock();
     if (!sock) return;
@@ -36,6 +38,23 @@ export function startComunicacionesPoller({ getSock, logger }) {
         // no marcamos → se reintenta en el próximo ciclo.
         logger.warn?.({ id: p.id, err: err.message }, 'comunicaciones-poller: fallo al enviar, reintenta luego');
       }
+    }
+    // "Devolver al bot" MANUAL → relanzar el flujo activamente (Regla de Oro): saludo + menú del
+    // día proactivo, para que el cliente concrete el pedido por el bot. El flag lo bajó la acción;
+    // lo limpiamos al enviar para no re-disparar. El timeout automático NO entra acá (no marca flag).
+    try {
+      const jids = await relanzarPendientes();
+      for (const jid of jids) {
+        try {
+          await sendBotMessage(sock, jid, { text: mensajeRelanzarFlujo(menu) });
+          await marcarRelanzado(jid);
+          logger.info?.({ jid }, '🔄 devuelto al bot (manual) → flujo relanzado con el menú');
+        } catch (err) {
+          logger.warn?.({ jid, err: err.message }, 'comunicaciones-poller: relanzar falló, reintenta luego');
+        }
+      }
+    } catch (err) {
+      logger.warn?.({ err: err.message }, 'comunicaciones-poller: relanzar-pendientes falló');
     }
     // Fase 3: barrido de timeouts (reactivación automática al bot tras ~25min). Best-effort.
     try {

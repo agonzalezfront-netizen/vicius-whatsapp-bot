@@ -200,12 +200,12 @@ async function bootstrap() {
       return makeCloudSock(makeCloudClient(tenant, logger), logger);
     };
     startNotifPoller({ getSock: getCloudSock, logger });
-    if (COMUNICACIONES) startComunicacionesPoller({ getSock: getCloudSock, logger });
+    if (COMUNICACIONES) startComunicacionesPoller({ getSock: getCloudSock, logger, menu });
   } else {
     await connectSocket();
     // Gestor de pedidos: polling de notificaciones validado/rechazado → MSG-2/MSG-3.
     startNotifPoller({ getSock: () => currentSock, logger });
-    if (COMUNICACIONES) startComunicacionesPoller({ getSock: () => currentSock, logger });
+    if (COMUNICACIONES) startComunicacionesPoller({ getSock: () => currentSock, logger, menu });
   }
 
   // Cierre GRACEFUL (anti-corrupción de sesiones Signal). Causa raíz del "Bad MAC"

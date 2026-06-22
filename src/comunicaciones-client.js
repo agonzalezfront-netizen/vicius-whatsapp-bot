@@ -97,6 +97,26 @@ export async function marcarSalienteEnviado(id, waMessageId) {
   return res.json();
 }
 
+// "Devolver al bot" manual: el bot pollea las conversaciones que un humano devolvió y debe
+// RELANZAR el flujo (saludo+menú proactivo). Devuelve la lista de jids pendientes.
+export async function relanzarPendientes() {
+  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/relanzar-pendientes`, {
+    method: 'GET', headers: _headers(false),
+  });
+  if (!res.ok) throw new Error(`relanzarPendientes HTTP ${res.status}`);
+  const data = await res.json();
+  return data.pendientes ?? [];
+}
+
+// Confirma que ya relanzó el flujo de esa conversación → baja el flag (evita re-disparo).
+export async function marcarRelanzado(jid) {
+  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/relanzar-hecho`, {
+    method: 'POST', headers: _headers(), body: JSON.stringify({ jid }),
+  });
+  if (!res.ok) throw new Error(`marcarRelanzado HTTP ${res.status}`);
+  return res.json();
+}
+
 // Fase 3 — barrido de timeouts del handoff: conversaciones en requiere_humano/en_atención
 // inactivas ~25min → el wizard las devuelve al bot (reactivación automática). El bot lo
 // dispara periódicamente (el wizard no tiene scheduler propio).

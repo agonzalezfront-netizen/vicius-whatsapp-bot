@@ -127,6 +127,22 @@ Decime qué te gustaría 🙂`;
   return `¡Hola! 👋 Bienvenido a El Sazón de Carla y César. Hoy tenemos comida casera. Decime qué buscás y armamos tu menú.`;
 }
 
+// Mensaje PROACTIVO al "Devolver al bot" manual desde la bandeja (Regla de Oro): tras resolver la
+// duda con la persona, el bot relanza el flujo para que el cliente concrete el pedido por el bot
+// (así quedan registrados pedido+comprobante+Kanban). Reusa el menú de buildSaludoEjemplo con un
+// saludo de CONTINUIDAD (vuelve del humano, no es un cliente nuevo). Determinista, sin LLM.
+export function mensajeRelanzarFlujo(fallbackMenu) {
+  const am = getActiveMenu();
+  const base = buildSaludoEjemplo(am, fallbackMenu);
+  if (am) {
+    return base.replace(
+      '¡Hola! 👋 Bienvenido a El Sazón de Carla y César. Este es el menú de hoy:',
+      '¡Listo! 🙂 Seguimos con tu pedido. Te dejo el menú de hoy para que lo armemos:',
+    );
+  }
+  return '¡Listo! 🙂 Seguimos con tu pedido. Decime qué te gustaría y lo armamos.';
+}
+
 function systemPrompt(menu, sesion = 'nueva', estadoPedido = null) {
   const fechaHoy = getFechaLegible();
   const activeMenu = getActiveMenu();
