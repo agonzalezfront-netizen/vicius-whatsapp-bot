@@ -135,7 +135,13 @@ export function setActiveMenu(payload) {
   const especiales = Array.isArray(payload.platos_especiales)
     ? payload.platos_especiales
         .filter((e) => e && e.nombre)
-        .map((e) => ({ nombre: String(e.nombre).trim(), precio: Number(e.precio) || 0, desc: (e.desc ?? '').trim() }))
+        .map((e) => ({
+          nombre: String(e.nombre).trim(), precio: Number(e.precio) || 0, desc: (e.desc ?? '').trim(),
+          // Agregados INCLUIDOS en el precio del especial (cupo propio). Cambiar/quitar = gratis;
+          // añadir más allá del cupo = $2.000 c/u (lo aplica precios.js). Retrocompat: si falta → [].
+          agregados_incluidos: Array.isArray(e.agregados_incluidos)
+            ? e.agregados_incluidos.map((x) => String(x).trim()).filter(Boolean) : [],
+        }))
     : [];
 
   // Repertorio (catálogo completo). Opcional y retrocompatible: si el wizard no lo manda
@@ -206,7 +212,12 @@ export function renderActiveMenuForPrompt(menu) {
   const bebidaUnidad = bebidasArr.join(' o '); // "1 ${bebidaUnidad}" → "1 consomé" o "1 jugo o consomé"
   const especiales = (menu.platos_especiales ?? []);
   const especialesStr = especiales.length
-    ? especiales.map((e) => `  • ${e.nombre} — $${e.precio}${e.desc ? ` — ${e.desc}` : ''}`).join('\n')
+    ? especiales.map((e) => {
+        const inc = Array.isArray(e.agregados_incluidos) && e.agregados_incluidos.length
+          ? ` — viene con: ${e.agregados_incluidos.join(', ')} (cambiar/quitar gratis; agregar más = $2.000 c/u)`
+          : '';
+        return `  • ${e.nombre} — $${e.precio}${e.desc ? ` — ${e.desc}` : ''}${inc}`;
+      }).join('\n')
     : null;
 
   // Repertorio (otros días): ítems que el local ofrece ALGÚN día pero HOY no están.

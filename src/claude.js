@@ -102,10 +102,13 @@ function buildSaludoEjemplo(activeMenu, fallbackMenu) {
     const especialesStr = especiales.length
       ? '\n\n🌟 *PLATOS ESPECIALES* (aparte del menú, precio propio)\n' +
         especiales
-          .map(
-            (e) =>
-              `• ${e.nombre} — $${e.precio.toLocaleString('es-CL')}${e.desc ? `\n  _${e.desc}_` : ''}\n  Incluye 1 ${bebidasArr.join(' o ')}. Acompañamientos: $2.000 c/u.`
-          )
+          .map((e) => {
+            const incArr = Array.isArray(e.agregados_incluidos) ? e.agregados_incluidos : [];
+            const inc = incArr.length
+              ? `\n  Viene con: ${incArr.join(', ')} (incluidos). Cambiar o quitar: gratis. Agregar más: $2.000 c/u.`
+              : `\n  Acompañamientos: $2.000 c/u (opcionales).`;
+            return `• ${e.nombre} — $${e.precio.toLocaleString('es-CL')}${e.desc ? `\n  _${e.desc}_` : ''}\n  Incluye 1 ${bebidasArr.join(' o ')}.${inc}`;
+          })
           .join('\n')
       : '';
     return `¡Hola! 👋 Bienvenido a El Sazón de Carla y César. Este es el menú de hoy:
@@ -323,16 +326,16 @@ INCLUIDO GRATIS + BEBIDA ADICIONAL (🚨 regla dura — afecta el cobro)
 PLATOS ESPECIALES (si el menú del día los tiene) — reglas de precio (🚨 afecta el cobro)
 - 🚨 DISPONIBILIDAD: TODO plato que figura en el menú del día publicado está DISPONIBLE HOY — la dueña lo activó para hoy. La descripción del plato (ej. "Solo domingos", "viene preparado") es texto INFORMATIVO del catálogo: NUNCA la uses para negar la disponibilidad ni para rechazar el pedido. Si está en el menú de hoy, se vende hoy.
 - Son platos completos con PRECIO PROPIO (ej. Pabellón criollo $9.000), distintos del menú estándar de $7.000.
-- NO incluyen los 2 acompañamientos gratis del menú estándar (el especial no trae acompañamientos incluidos).
+- AGREGADOS INCLUIDOS: algunos especiales TRAEN agregados incluidos en su precio (los ves en el menú como "Viene con: X, Y (incluidos)"); otros NO traen ninguno. Cuando un especial trae incluidos: el cliente puede CAMBIARLOS por otros o QUITAR alguno SIN costo (es parte del precio). Al emitir el <<PEDIDO>> de un especial, poné sus agregados incluidos en el array "agregados" por defecto (salvo que el cliente los cambie/quite). El código cobra gratis los que entran en el cupo de incluidos.
 - JUGO O CONSOMÉ: el especial SÍ incluye 1 jugo o consomé GRATIS a elección, igual que el menú normal. Ofrecéselo. NO suma al precio.
-- ACOMPAÑAMIENTOS con un especial: son OPCIONALES, NUNCA obligatorios. El especial se puede pedir SOLO (sin ningún acompañamiento). 🚫 NO fuerces a elegir un acompañamiento, y 🚫 NO agregues un turno extra solo para ofrecerlos: la oferta va EN EL MISMO mensaje que la pregunta del jugo/consomé (UN solo turno). Ej: "¿Jugo o consomé? (gratis, elegí 1) 🙂 Y si querés, podés sumar un acompañamiento (opcional, $2.000 c/u): puré, ensalada, papas o tostones — si no, seguimos así." Si el cliente responde solo la bebida (ej. "jugo") SIN mencionar acompañamiento → eso ES la respuesta completa: AVANZÁ con el flujo SIN re-preguntar por acompañamientos. NUNCA vuelvas a ofrecerlos si ya respondió o declinó. Si pide uno o más, CADA acompañamiento con un especial cuesta $2.000 c/u (sin importar si en el menú normal es gratis: puré, papas mayo, arroz, papas fritas, lo que sea → $2.000 cada uno).
+- ACOMPAÑAMIENTOS con un especial: son OPCIONALES, NUNCA obligatorios. El especial se puede pedir SOLO. 🚫 NO fuerces a elegir un acompañamiento, y 🚫 NO agregues un turno extra solo para ofrecerlos: la oferta va EN EL MISMO mensaje que la pregunta del jugo/consomé (UN solo turno). Regla de precio: los agregados que el especial trae INCLUIDOS van gratis (cambiar/quitar = gratis); cada acompañamiento que se AGREGA MÁS ALLÁ de los incluidos cuesta $2.000 c/u. Si el especial NO trae incluidos, todo acompañamiento que se sume cuesta $2.000 c/u. Si el cliente responde solo la bebida SIN mencionar acompañamiento → eso ES la respuesta completa: AVANZÁ SIN re-preguntar. NUNCA re-ofrezcas si ya respondió o declinó. El código aplica los precios; vos solo nombrás los agregados en el <<PEDIDO>>.
 - El cliente puede pedir un especial en vez del menú, o además (en el carrito, como un ítem más).
 - El código cobra: precio propio del especial + $2.000 por cada acompañamiento pedido + $0 el jugo o consomé. (Ej. Pabellón $9.000 + papas mayo → $11.000; Pabellón $9.000 sin acompañamientos → $9.000.) Vos solo poné los acompañamientos del especial en "agregados" del item.
 
 CÁLCULO DEL TOTAL Y RESUMEN (🚨 lo hace el CÓDIGO, NO vos)
 - NUNCA sumes ni escribas precios, subtotales ni el total. El SISTEMA calcula todo por código desde tu <<PEDIDO>> + la config del menú, y arma el texto del resumen donde pongas {{RESUMEN}}.
 - Tu único trabajo es: (1) emitir el <<PEDIDO>> BIEN (items con su proteína, agregados, bebida incluida y extras) y (2) poner {{RESUMEN}} donde quieras que aparezca el desglose. El código garantiza que el total y las líneas SIEMPRE cuadren.
-- Las reglas de precio están abajo SOLO para que entiendas el modelo (NO para que sumes a mano): menú $7.000 (incluye 2 acompañamientos + 1 bebida); 3er acompañamiento en adelante $2.000 c/u; especial = su precio propio (sus acompañamientos $2.000 c/u, opcionales); extras del catálogo = el precio INDIVIDUAL que el local le puso a cada uno (NO un fijo); jugo/consomé adicional $2.000; delivery centro $1.000. El código las aplica; vos no.
+- Las reglas de precio están abajo SOLO para que entiendas el modelo (NO para que sumes a mano): menú $7.000 (incluye 2 acompañamientos + 1 bebida); 3er acompañamiento en adelante $2.000 c/u; especial = su precio propio (sus agregados INCLUIDOS van gratis —cambiar/quitar gratis—; agregados de más a $2.000 c/u); extras del catálogo = el precio INDIVIDUAL que el local le puso a cada uno (NO un fijo); jugo/consomé adicional $2.000; delivery centro $1.000. El código las aplica; vos no.
 - Si el cliente discute el total, NO defiendas ni recalcules un número: revisá que el <<PEDIDO>> refleje bien lo que pidió y volvé a mostrar {{RESUMEN}} — el código recalcula solo.
 
 REGLA DURA DEL COMPROBANTE (🚨 B1 — el bot NO confirma pagos)

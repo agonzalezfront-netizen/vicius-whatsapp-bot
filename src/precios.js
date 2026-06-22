@@ -21,9 +21,13 @@ const norm = (s) => String(s ?? '').trim().toLowerCase();
 function basePlato(proteina, menuActivo, fallback) {
   const especiales = menuActivo?.platos_especiales ?? [];
   const esp = especiales.find((e) => norm(e.nombre) === norm(proteina));
-  if (esp) return { esEspecial: true, base: Number(esp.precio) || 0 };
+  if (esp) return {
+    esEspecial: true, base: Number(esp.precio) || 0,
+    // Cupo de agregados INCLUIDOS del especial (gratis). Retrocompat: si no tiene, 0 (todo paga, como antes).
+    incluidos: Array.isArray(esp.agregados_incluidos) ? esp.agregados_incluidos.length : 0,
+  };
   const precioMenu = menuActivo?.price_typical ?? fallback?.plato_estandar?.precio ?? 7000;
-  return { esEspecial: false, base: precioMenu };
+  return { esEspecial: false, base: precioMenu, incluidos: null };
 }
 
 function precioExtra(nombre, menuActivo) {
@@ -31,13 +35,18 @@ function precioExtra(nombre, menuActivo) {
   return ex ? Number(ex.precio) || EXTRA_DEFAULT : EXTRA_DEFAULT;
 }
 
-// Calcula un item: base + acompañamientos pagos (3º+ en estándar, todos en especial) + extras.
+// Calcula un item: base + acompañamientos pagos + extras.
+// - Estándar: 2 agregados incluidos (gratis), 3º+ a $2.000 c/u.
+// - Especial: su propio CUPO de incluidos (gratis) según su config; los que exceden, $2.000 c/u.
+//   Así "cambiar/quitar un incluido" = gratis y "añadir de más" = paga, sale solo del slice.
 export function calcularItem(item, menuActivo, fallback) {
-  const { esEspecial, base } = basePlato(item.proteina, menuActivo, fallback);
-  const incluyeN = menuActivo ? 2 : fallback?.plato_estandar?.incluye_agregados ?? 2;
+  const { esEspecial, base, incluidos } = basePlato(item.proteina, menuActivo, fallback);
+  const incluyeN = esEspecial
+    ? (incluidos ?? 0)
+    : (menuActivo ? 2 : fallback?.plato_estandar?.incluye_agregados ?? 2);
   const agregados = Array.isArray(item.agregados) ? item.agregados.map(String) : [];
-  const agregadosIncluidos = esEspecial ? [] : agregados.slice(0, incluyeN);
-  const agregadosPagos = esEspecial ? agregados.slice() : agregados.slice(incluyeN);
+  const agregadosIncluidos = agregados.slice(0, incluyeN);
+  const agregadosPagos = agregados.slice(incluyeN);
   const extras = (Array.isArray(item.extras) ? item.extras : [])
     .map(String)
     .filter((e) => e.trim())
