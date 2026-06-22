@@ -6,8 +6,10 @@
 //         ruteamos por phone_number_id al tenant, y procesamos cada mensaje con
 //         la MISMA lógica del bot (handleMessage), vía el sock-adapter Cloud API.
 //
-// Seguridad: si WA_APP_SECRET está seteado, se exige firma válida (recomendado en
-// prod). Sin él (dev temprano), se acepta sin firma pero se loguea un warning.
+// Seguridad: se exige firma HMAC válida SIEMPRE que haya WA_APP_SECRET. Si NO hay secret, el
+// webhook es fail-CLOSED (rechaza) salvo que se opte explícitamente por dev inseguro con
+// ALLOW_UNSIGNED_WEBHOOK=true. Así, si en prod faltara el secret, no se aceptan POSTs sin verificar
+// (nadie puede inyectar mensajes falsos). Auditoría Cortex 2026-06-22 (hallazgo ALTO).
 
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { getTenant } from './tenants.js';
@@ -31,7 +33,11 @@ export function handleVerify(query) {
 // Valida la firma HMAC-SHA256 del body crudo contra X-Hub-Signature-256.
 export function verifySignature(rawBody, signatureHeader) {
   const secret = APP_SECRET();
-  if (!secret) return { ok: true, skipped: true }; // dev sin secret: no exigir
+  if (!secret) {
+    // Fail-CLOSED: sin secret se RECHAZA, salvo opt-in explícito de dev inseguro.
+    if (process.env.ALLOW_UNSIGNED_WEBHOOK === 'true') return { ok: true, skipped: true };
+    return { ok: false, noSecret: true };
+  }
   if (!signatureHeader || !signatureHeader.startsWith('sha256=')) return { ok: false };
   const expected = 'sha256=' + createHmac('sha256', secret).update(rawBody).digest('hex');
   try {
@@ -51,10 +57,11 @@ export async function handleIncoming(rawBody, signatureHeader, ctx) {
 
   const sig = verifySignature(rawBody, signatureHeader);
   if (!sig.ok) {
-    logger.warn?.('webhook: firma inválida — rechazado');
+    if (sig.noSecret) logger.error?.('webhook: WA_APP_SECRET no seteado y sin ALLOW_UNSIGNED_WEBHOOK → RECHAZADO (fail-closed). Setear el secret en prod.');
+    else logger.warn?.('webhook: firma inválida — rechazado');
     return { status: 401 };
   }
-  if (sig.skipped) logger.warn?.('webhook: WA_APP_SECRET no seteado — firma NO verificada (ok en dev)');
+  if (sig.skipped) logger.warn?.('webhook: ALLOW_UNSIGNED_WEBHOOK=true — firma NO verificada (solo dev)');
 
   let payload;
   try {
