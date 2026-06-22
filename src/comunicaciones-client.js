@@ -72,3 +72,24 @@ export async function devolverAlBot(jid) {
   if (!res.ok) throw new Error(`devolverAlBot HTTP ${res.status}`);
   return res.json();
 }
+
+// Fase 2 — saliente del humano: el bot pollea las respuestas del humano pendientes de
+// envío (status 'enviando' en la bandeja) y las manda por el número del bot.
+export async function salientesPendientes() {
+  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/salientes`, {
+    method: 'GET', headers: _headers(false),
+  });
+  if (!res.ok) throw new Error(`salientesPendientes HTTP ${res.status}`);
+  const data = await res.json();
+  return data.pendientes ?? [];
+}
+
+// Confirma que el saliente del humano (id de la bandeja) se envió, con el wa_message_id
+// de Cloud API → de ahí los estados de entrega siguen por el webhook.
+export async function marcarSalienteEnviado(id, waMessageId) {
+  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/salientes/${id}/enviado`, {
+    method: 'POST', headers: _headers(), body: JSON.stringify({ wa_message_id: waMessageId ?? null }),
+  });
+  if (!res.ok) throw new Error(`marcarSalienteEnviado HTTP ${res.status}`);
+  return res.json();
+}

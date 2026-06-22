@@ -17,6 +17,10 @@ import { startQRServer, setQR, clearQR, setStatus } from './qr-server.js';
 import { cargarMenuActual } from './pedidos-client.js';
 import { validateMenuPayload, setActiveMenu } from './active-menu.js';
 import { startNotifPoller } from './notif-poller.js';
+import { startComunicacionesPoller } from './comunicaciones-poller.js';
+
+// Handoff v1 Fase 2: poller del saliente humano. Flag-gated (dormido por default).
+const COMUNICACIONES = (process.env.COMUNICACIONES_ENABLED ?? 'false') === 'true';
 import { loadTenantsFromEnv, tenantCount, getTenant } from './cloud-api/tenants.js';
 import { makeCloudClient, subscribeAppToWaba } from './cloud-api/client.js';
 import { makeCloudSock } from './cloud-api/adapter.js';
@@ -196,10 +200,12 @@ async function bootstrap() {
       return makeCloudSock(makeCloudClient(tenant, logger), logger);
     };
     startNotifPoller({ getSock: getCloudSock, logger });
+    if (COMUNICACIONES) startComunicacionesPoller({ getSock: getCloudSock, logger });
   } else {
     await connectSocket();
     // Gestor de pedidos: polling de notificaciones validado/rechazado → MSG-2/MSG-3.
     startNotifPoller({ getSock: () => currentSock, logger });
+    if (COMUNICACIONES) startComunicacionesPoller({ getSock: () => currentSock, logger });
   }
 
   // Cierre GRACEFUL (anti-corrupción de sesiones Signal). Causa raíz del "Bad MAC"
