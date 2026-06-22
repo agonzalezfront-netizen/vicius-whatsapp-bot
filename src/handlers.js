@@ -182,11 +182,22 @@ function pasaRateLimit(jid, now) {
   return arr.length <= RATE_MAX;
 }
 
+// Instrumentación (encargo política general 2026-06-22): una línea PARSEABLE por CADA derivación a
+// humano, con su motivo. Permite medir la TASA de derivación del piloto (grep 'DERIVACION') —el dato
+// que necesitamos antes de amplificar la visibilidad y para saber qué cargar a INFO DEL LOCAL—.
+// Motivos: marcador | deteccion-verbal | fuera-horario | freno:<submotivo>.
+function logDerivacion(jid, motivo, logger) {
+  logger.info({ jid, derivacion: motivo }, '📊 DERIVACION');
+}
+
 // Activa un freno: pausa el bot para ese jid (deriva al humano) y devuelve el
-// mensaje de derivación a enviar (una sola vez).
+// mensaje de derivación a enviar (una sola vez). El freno ES una derivación → también marca
+// requiere_humano para que aparezca en la bandeja de Comunicaciones (igual que el resto).
 function dispararFreno(jid, motivo, logger) {
   pausedJids.set(jid, Date.now());
   logger.warn({ jid, motivo }, '🛑 freno disparado — bot pausado, derivado a humano');
+  logDerivacion(jid, 'freno:' + motivo, logger);
+  if (COMUNICACIONES) escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalar freno falló (no crítico)'));
 }
 
 const normaliza = (s) =>
@@ -439,6 +450,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
     if (COMUNICACIONES) {
       escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalar fuera-de-horario falló (no crítico)'));
     }
+    logDerivacion(jid, 'fuera-horario', logger);
     logger.info({ jid }, 'fuera de horario, respondido con mensaje de cierre');
     return;
   }
@@ -524,15 +536,20 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   // no lo ve) y marcar la conversación como requiere_humano (fire-and-forget, flag-gated).
   const esc = extraerEscalar(respuesta);
   respuesta = esc.limpio;
-  // Red de seguridad determinista (bug 2026-06-22): el bot a veces deriva EN EL TEXTO
-  // ("déjame consultarle a la pareja") sin emitir <<ESCALAR>> → quedaba sin marcar y seguía
-  // respondiendo. Si detectamos la frase de derivación y NO hubo emisión de pedido (para no
-  // pisar el flujo de transferencia, que dice "validar con la pareja y te confirmo" + <<PEDIDO>>),
-  // marcamos requiere_humano igual. Mejor marcar de más que de menos.
-  const derivoVerbal = !pedido && derivacionVerbal(respuesta);
-  if (COMUNICACIONES && (esc.escalar || derivoVerbal)) {
-    escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalarAHumano falló (no crítico)'));
-    logger.info({ jid, via: esc.escalar ? 'marcador' : 'deteccion-verbal' }, '🙋 conversación marcada requiere_humano');
+  // Red de seguridad determinista (bug 2026-06-22 + política general 2026-06-22): el bot a veces
+  // deriva EN EL TEXTO ("déjame consultarle a la pareja") sin emitir <<ESCALAR>> → quedaba sin marcar
+  // y seguía respondiendo. Detectamos la frase y marcamos requiere_humano igual. Mejor marcar de más.
+  // Ya NO condicionamos a !pedido: la malla excluye por diseño el flujo de transferencia ("validar con
+  // la pareja y te confirmo enseguida" NO matchea), así que una consulta fuera-de-flujo que caiga
+  // DURANTE el pago también se atrapa (cierra el hueco §2 del encargo de política general).
+  const derivoVerbal = derivacionVerbal(respuesta);
+  const motivoDeriv = esc.escalar ? 'marcador' : (derivoVerbal ? 'deteccion-verbal' : null);
+  if (motivoDeriv) {
+    if (COMUNICACIONES) {
+      escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalarAHumano falló (no crítico)'));
+      logger.info({ jid, via: motivoDeriv }, '🙋 conversación marcada requiere_humano');
+    }
+    logDerivacion(jid, motivoDeriv, logger);  // medir tasa de derivación aun si el flag está off
   }
   if (parseError) {
     logger.error(

@@ -349,14 +349,21 @@ DELIVERY — zonas y costos (NO calcules automático, el dueño confirma)
 - Más lejos / foráneo: entre $3.000 y $4.000, sujeto a evaluación.
 - SIEMPRE pedí la dirección de entrega. NO confirmes el costo de delivery foráneo tú mismo — decí "el costo exacto te lo confirma la pareja según la distancia, ronda los $3.000 a $4.000". El dueño valida manual.
 
-ESCALADO A HUMANO — cuándo derivar a Carla y César
-Respondé literalmente "Déjame consultarle a la pareja y vuelvo en un ratito" (y NO sigas respondiendo de ese tema) cuando:
-- Te preguntan algo que NO está en el menú ni en INFO DEL LOCAL (ej: "¿hacen eventos?", "¿tienen vegano?"). NOTA: mascotas y reservas YA tienen respuesta en INFO DEL LOCAL — esas respondelas directo, no las escales (salvo concretar los detalles de una reserva).
-- 🚨 DETALLE DE UN ÍTEM QUE NO TENÉS CARGADO (regla anti-invención — CRÍTICO por alergias): solo sabés de cada ítem lo que figura EXPLÍCITAMENTE en el menú del día (su nombre y, si la trae, su descripción). Si el cliente pregunta un detalle que NO está cargado —ingredientes, preparación, alérgenos/gluten/lácteos, picante, tamaño/porción, calorías, etc.— NUNCA lo inventes ni supongas, por más plausible que suene. Derivá: "Déjame consultar ese detalle con el local y te confirmo enseguida 🙂". Ej: hay "Carne mechada" en el menú pero nadie cargó con qué viene → si preguntan ingredientes/preparación, NO los inventes → derivá. Un ingrediente inventado puede ser peligroso (alergias). Mejor "lo consulto" que una respuesta falsa.
-- Hay una queja, reclamo, o problema con un pedido previo.
-- Piden algo fuera de lo común (pedido gigante, factura empresa, condiciones especiales).
-- Detectás enojo o frustración del cliente.
-NUNCA inventes una respuesta para estos casos. Mejor derivar que improvisar mal. Cuando derivás, el dueño ve la conversación en su teléfono y responde él.
+ESCALADO A HUMANO — PRINCIPIO RECTOR (no es una lista de casos)
+🚨 REGLA #1 — el criterio general, por encima de cualquier ejemplo:
+Existís para AVANZAR el flujo estándar del pedido. TODO lo que (a) NO avanza ese flujo Y (b) NO está ya respondido en tu base de conocimiento (el menú del día + INFO DEL LOCAL) → se DERIVA a una persona. No hay tercera opción: o avanzás el flujo, o respondés con algo que SÍ está en la base, o derivás. NUNCA improvisás ni inventás una respuesta que no esté en la base.
+
+El FLUJO ESTÁNDAR (lo único que NO se deriva, además de las FAQ de la base) es exactamente:
+saludo → mostrar el menú del día → el cliente elige ítems → acompañamientos/extras/bebida → delivery o retiro → dirección (si delivery) → pago por transferencia → recibir el comprobante → confirmación. Todo lo que mueve ESTO hacia adelante = flujo, respondelo. Cualquier otra cosa que no esté en la base = derivá.
+
+La EXCEPCIÓN que no podés omitir: lo que YA tiene respuesta en INFO DEL LOCAL (dirección, horario, delivery, mascotas, reservas, y lo que se vaya agregando) se responde DIRECTO, no se deriva. Si la base lo contesta, contestalo; si no, derivá.
+
+Derivá respondiendo literalmente "Déjame consultarle a la pareja y vuelvo en un ratito" (y NO sigas avanzando el pedido en ese mismo mensaje). EJEMPLOS ilustrativos (NO es lista exhaustiva — el criterio es el principio de arriba, no que coincida con un ejemplo):
+- 🚨 DETALLE DE UN ÍTEM QUE NO TENÉS CARGADO (anti-invención — CRÍTICO por alergias): de cada ítem solo sabés lo que figura EXPLÍCITAMENTE en el menú del día (nombre y, si la trae, su descripción). Si preguntan un detalle que NO está cargado —ingredientes, preparación, alérgenos/gluten/lácteos, picante, tamaño/porción, calorías— NUNCA lo inventes ni supongas, por plausible que suene → derivá. Un ingrediente inventado puede ser peligroso. Mejor "lo consulto" que una respuesta falsa.
+- Un medio de pago, promoción, feriado o condición especial que no esté en la base.
+- Una queja, reclamo o problema con un pedido previo; enojo o frustración del cliente.
+- Un pedido fuera de lo común (gigante, factura empresa, catering).
+Cuando derivás, el dueño ve la conversación en su teléfono y responde él. La forma de derivar MENOS no es relajar este criterio: es que la pareja cargue a INFO DEL LOCAL lo que se pregunte seguido.
 🚨 MARCADOR DE MÁQUINA — REGLA INQUEBRANTABLE: si tu mensaje dice CUALQUIER cosa del tipo "déjame consultar/verificar/preguntar", "lo consulto con la pareja/el local", "te confirmo en un ratito", "vuelvo en un ratito", "déjame avisarle a la pareja" — es decir, si DERIVÁS aunque sea de palabra — TENÉS QUE agregar al FINAL, en una línea aparte, exactamente: <<ESCALAR>>. La frase de derivación y el marcador <<ESCALAR>> van SIEMPRE juntos, nunca uno sin el otro. El cliente NO ve el marcador; el sistema lo usa para avisarle a la pareja. Y cuando derivás, NO sigas avanzando el pedido en ese mismo mensaje (no agregues "mientras tanto, ¿delivery o retiro?") — derivás y esperás. SOLO emitilo cuando realmente derivás (no en un pedido normal).
 
 REGLAS DURAS
@@ -388,14 +395,20 @@ function _norm(s) {
 // pareja no se entera (bug real 2026-06-22: consulta de pago con tarjeta). Esta capa de
 // CÓDIGO detecta esas frases sobre el texto YA normalizado (sin tildes) y, si aparecen,
 // se marca requiere_humano igual. "Mejor marcar de más que de menos" (Alberto).
-// OJO: el caller la aplica SOLO cuando NO hubo emisión de <<PEDIDO>>, para no escalar el
-// flujo de transferencia ("lo paso a validar con la pareja y te confirmo" va con pedido).
+// Las frases se anclan con stems (consult*, verific*, …) + el objeto "con la pareja/el local/los
+// dueños" donde hace falta, para cubrir variantes (consultarlo/consultando/confirmar con la pareja)
+// SIN falsos positivos del flujo normal: "te confirmo el pedido" o "déjame confirmar tu pedido" NO
+// matchean (no hay verbo de consulta + pareja/local, ni "enseguida"). El flujo de transferencia
+// ("lo paso a validar con la pareja y te confirmo enseguida") tampoco matchea por diseño.
 const _FRASES_DERIVACION = [
-  /dejame\s+(consultar|consultarle|verificar|averiguar|chequear|preguntar|avisar|avisarle)/,
-  /(consult|pregunt|averigu|verific|chequ|avis)\w*\s+(con\s+|a\s+)?(la\s+pareja|el\s+local|los\s+duen|la\s+duen)/,
-  /\b(lo|eso|ese\s+detalle|esa\s+consulta)\s+(lo\s+)?consult/,
-  /vuelvo\s+en\s+un\s+ratito/,
-  /te\s+confirmo\s+(en\s+un\s+ratito|mas\s+tarde|apenas|cuando|luego)/,
+  /dejame\s+(consult|verific|averigu|chequ|pregunt|avis|coordin|fij)\w*/,
+  /(consult|pregunt|averigu|verific|chequ|avis|confirm|coordin)\w*\s+(con\s+|a\s+|al\s+)?(la\s+pareja|el\s+local|los\s+duen|la\s+duen|el\s+due)/,
+  /\b(lo|eso|ese\s+detalle|esa\s+consulta)\s+(lo\s+)?(consult|verific|chequ|pregunt)/,
+  /vuelvo\s+en\s+un\s+rat(it)?o/,
+  // OJO: ventanas temporales de alta precisión. NO incluir "cuando/apenas" → falsos positivos del
+  // seguimiento normal ("te aviso cuando esté en camino", "te aviso apenas salga"). El "consultar con
+  // la pareja/local" lo cubren #1/#2; esto suma solo la promesa de respuesta diferida inequívoca.
+  /te\s+(confirmo|aviso)\s+(en\s+un\s+rat(it)?o|mas\s+tarde|luego)/,
 ];
 export function derivacionVerbal(texto) {
   const t = _norm(texto);
