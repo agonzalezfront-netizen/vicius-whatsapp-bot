@@ -177,11 +177,17 @@ export async function runBotTurn({ menu, history, userMessage, sesion = 'nueva',
   const calc = procesarCalc(texto);
   const { limpio: sinPedido, pedido } = extraerPedido(calc.limpio);
   // Handoff v1: recortar el marcador <<ESCALAR>> y exponer si el bot derivó a humano.
-  const escalar = /<<ESCALAR>>/.test(sinPedido);
+  const marcador = /<<ESCALAR>>/.test(sinPedido);
   const textoVisible = sinPedido.replace(/<<ESCALAR>>/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  // Red de seguridad determinista (bug 2026-06-22): derivación verbal sin marcador → escala
+  // igual, salvo que haya emisión de pedido (mismo guard que handlers.js).
+  const { derivacionVerbal } = await import('../src/claude.js');
+  const derivoVerbal = !pedido && derivacionVerbal(textoVisible);
+  const escalar = marcador || derivoVerbal;
+  const escalarVia = marcador ? 'marcador' : (derivoVerbal ? 'deteccion-verbal' : null);
   const total = calc.total !== null ? calc.total : pedido?.total ?? null;
 
-  return { textoVisible, total, pedido, escalar, usage, model };
+  return { textoVisible, total, pedido, escalar, escalarVia, usage, model };
 }
 
 // Menú de prueba representativo (fixtures puros, sin side-effects).

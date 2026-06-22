@@ -1,4 +1,4 @@
-import { generarRespuesta } from './claude.js';
+import { generarRespuesta, derivacionVerbal } from './claude.js';
 import { estaAbierto, mensajeCerrado } from './horario.js';
 import { crearPedido, subirComprobante, buscarPedidoEsperandoComprobante, estadoUltimoPedido } from './pedidos-client.js';
 import { getActiveMenu } from './active-menu.js';
@@ -524,9 +524,15 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   // no lo ve) y marcar la conversación como requiere_humano (fire-and-forget, flag-gated).
   const esc = extraerEscalar(respuesta);
   respuesta = esc.limpio;
-  if (COMUNICACIONES && esc.escalar) {
+  // Red de seguridad determinista (bug 2026-06-22): el bot a veces deriva EN EL TEXTO
+  // ("déjame consultarle a la pareja") sin emitir <<ESCALAR>> → quedaba sin marcar y seguía
+  // respondiendo. Si detectamos la frase de derivación y NO hubo emisión de pedido (para no
+  // pisar el flujo de transferencia, que dice "validar con la pareja y te confirmo" + <<PEDIDO>>),
+  // marcamos requiere_humano igual. Mejor marcar de más que de menos.
+  const derivoVerbal = !pedido && derivacionVerbal(respuesta);
+  if (COMUNICACIONES && (esc.escalar || derivoVerbal)) {
     escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalarAHumano falló (no crítico)'));
-    logger.info({ jid }, '🙋 conversación marcada requiere_humano (<<ESCALAR>>)');
+    logger.info({ jid, via: esc.escalar ? 'marcador' : 'deteccion-verbal' }, '🙋 conversación marcada requiere_humano');
   }
   if (parseError) {
     logger.error(

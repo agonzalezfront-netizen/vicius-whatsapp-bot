@@ -357,7 +357,7 @@ Respondé literalmente "Déjame consultarle a la pareja y vuelvo en un ratito" (
 - Piden algo fuera de lo común (pedido gigante, factura empresa, condiciones especiales).
 - Detectás enojo o frustración del cliente.
 NUNCA inventes una respuesta para estos casos. Mejor derivar que improvisar mal. Cuando derivás, el dueño ve la conversación en su teléfono y responde él.
-🚨 MARCADOR DE MÁQUINA: CADA VEZ que derivás a la pareja (cualquiera de los casos de arriba), agregá al FINAL de tu mensaje, en una línea aparte, exactamente: <<ESCALAR>> — el cliente NO lo ve, el sistema lo usa para avisarle a la pareja que esta conversación necesita atención humana. SOLO cuando realmente derivás (no en un pedido normal).
+🚨 MARCADOR DE MÁQUINA — REGLA INQUEBRANTABLE: si tu mensaje dice CUALQUIER cosa del tipo "déjame consultar/verificar/preguntar", "lo consulto con la pareja/el local", "te confirmo en un ratito", "vuelvo en un ratito", "déjame avisarle a la pareja" — es decir, si DERIVÁS aunque sea de palabra — TENÉS QUE agregar al FINAL, en una línea aparte, exactamente: <<ESCALAR>>. La frase de derivación y el marcador <<ESCALAR>> van SIEMPRE juntos, nunca uno sin el otro. El cliente NO ve el marcador; el sistema lo usa para avisarle a la pareja. Y cuando derivás, NO sigas avanzando el pedido en ese mismo mensaje (no agregues "mientras tanto, ¿delivery o retiro?") — derivás y esperás. SOLO emitilo cuando realmente derivás (no en un pedido normal).
 
 REGLAS DURAS
 - Si el cliente pregunta algo que NO está en el menú ni en INFO DEL LOCAL: "Déjame consultarle a la pareja y vuelvo en un ratito" — NO inventes información.
@@ -380,6 +380,26 @@ const _UNIVERSO_BEBIDAS = ['jugo', 'consome'];
 
 function _norm(s) {
   return (s ?? '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+// ── Red de seguridad determinista: derivación verbal sin marcador <<ESCALAR>> ──
+// El bot a veces deriva EN EL TEXTO ("déjame consultarle a la pareja", "vuelvo en un
+// ratito") pero NO emite <<ESCALAR>> → la conversación no se marca requiere_humano y la
+// pareja no se entera (bug real 2026-06-22: consulta de pago con tarjeta). Esta capa de
+// CÓDIGO detecta esas frases sobre el texto YA normalizado (sin tildes) y, si aparecen,
+// se marca requiere_humano igual. "Mejor marcar de más que de menos" (Alberto).
+// OJO: el caller la aplica SOLO cuando NO hubo emisión de <<PEDIDO>>, para no escalar el
+// flujo de transferencia ("lo paso a validar con la pareja y te confirmo" va con pedido).
+const _FRASES_DERIVACION = [
+  /dejame\s+(consultar|consultarle|verificar|averiguar|chequear|preguntar|avisar|avisarle)/,
+  /(consult|pregunt|averigu|verific|chequ|avis)\w*\s+(con\s+|a\s+)?(la\s+pareja|el\s+local|los\s+duen|la\s+duen)/,
+  /\b(lo|eso|ese\s+detalle|esa\s+consulta)\s+(lo\s+)?consult/,
+  /vuelvo\s+en\s+un\s+ratito/,
+  /te\s+confirmo\s+(en\s+un\s+ratito|mas\s+tarde|apenas|cuando|luego)/,
+];
+export function derivacionVerbal(texto) {
+  const t = _norm(texto);
+  return _FRASES_DERIVACION.some((re) => re.test(t));
 }
 
 // Devuelve la bebida NO disponible que la respuesta ofrece/menciona sin declinar, o null.
