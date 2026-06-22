@@ -3,7 +3,7 @@ import { estaAbierto, mensajeCerrado } from './horario.js';
 import { crearPedido, subirComprobante, buscarPedidoEsperandoComprobante, estadoUltimoPedido } from './pedidos-client.js';
 import { getActiveMenu } from './active-menu.js';
 import { calcularPedido, construirResumen } from './precios.js';
-import { registrarMensaje, botPausado } from './comunicaciones-client.js';
+import { registrarMensaje, botPausado, escalarAHumano } from './comunicaciones-client.js';
 
 // Sección Comunicaciones (handoff v1). Flag OFF por default → comportamiento idéntico
 // al actual (cero riesgo al deployar). ON cuando el wizard tenga los endpoints + la UI:
@@ -295,6 +295,15 @@ export function extraerPedido(texto) {
   }
 }
 
+// Marcador de máquina <<ESCALAR>>: el bot lo emite cuando deriva a la pareja (Comunicaciones
+// handoff v1). Lo recortamos (el cliente NO lo ve) y devolvemos si estaba presente para que
+// el caller marque la conversación como requiere_humano.
+export function extraerEscalar(texto) {
+  const escalar = /<<ESCALAR>>/.test(texto);
+  const limpio = texto.replace(/<<ESCALAR>>/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  return { limpio, escalar };
+}
+
 function extractText(msg) {
   return (
     msg.message?.conversation ??
@@ -505,6 +514,15 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   // El cliente NO debe ver el bloque <<PEDIDO>>. Recortarlo siempre.
   const { limpio, pedido, parseError } = extraerPedido(respuesta);
   respuesta = limpio;
+
+  // Handoff v1: el bot emite <<ESCALAR>> cuando deriva a la pareja → recortarlo (el cliente
+  // no lo ve) y marcar la conversación como requiere_humano (fire-and-forget, flag-gated).
+  const esc = extraerEscalar(respuesta);
+  respuesta = esc.limpio;
+  if (COMUNICACIONES && esc.escalar) {
+    escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalarAHumano falló (no crítico)'));
+    logger.info({ jid }, '🙋 conversación marcada requiere_humano (<<ESCALAR>>)');
+  }
   if (parseError) {
     logger.error(
       { jid, raw: parseError.raw?.slice(0, 600), err: parseError.err },

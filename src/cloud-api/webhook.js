@@ -47,7 +47,7 @@ export function verifySignature(rawBody, signatureHeader) {
 // Devuelve { status } — Meta solo necesita un 200 rápido. El procesamiento de cada
 // mensaje se hace best-effort (un error en uno no tira el resto ni el 200).
 export async function handleIncoming(rawBody, signatureHeader, ctx) {
-  const { logger = console, menu, handleMessage } = ctx;
+  const { logger = console, menu, handleMessage, onStatus } = ctx;
 
   const sig = verifySignature(rawBody, signatureHeader);
   if (!sig.ok) {
@@ -82,6 +82,17 @@ export async function handleIncoming(rawBody, signatureHeader, ctx) {
           await handleMessage({ sock, logger, menu, msg });
         } catch (err) {
           logger.error?.({ err: err.message, stack: err.stack }, 'webhook: handleMessage falló');
+        }
+      }
+      // Estados de entrega (sent/delivered/read/failed) — handoff v1: el panel muestra el
+      // estado de cada mensaje saliente. Best-effort, no bloquea el 200.
+      if (onStatus && Array.isArray(value?.statuses)) {
+        for (const st of value.statuses) {
+          try {
+            await onStatus({ id: st.id, status: st.status, error: st.errors?.[0]?.title ?? null });
+          } catch (err) {
+            logger.warn?.({ err: err.message }, 'webhook: onStatus falló');
+          }
         }
       }
     }

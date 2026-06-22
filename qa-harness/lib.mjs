@@ -173,12 +173,15 @@ export async function runBotTurn({ menu, history, userMessage, sesion = 'nueva',
     meter.assertUnderCap(); // corta el loop si cruzamos el tope
   }
 
-  // Misma cadena que handlers.js: primero CALC (suma + {{TOTAL}}), luego PEDIDO.
+  // Misma cadena que handlers.js: primero CALC (suma + {{TOTAL}}), luego PEDIDO, luego ESCALAR.
   const calc = procesarCalc(texto);
-  const { limpio: textoVisible, pedido } = extraerPedido(calc.limpio);
+  const { limpio: sinPedido, pedido } = extraerPedido(calc.limpio);
+  // Handoff v1: recortar el marcador <<ESCALAR>> y exponer si el bot derivó a humano.
+  const escalar = /<<ESCALAR>>/.test(sinPedido);
+  const textoVisible = sinPedido.replace(/<<ESCALAR>>/g, '').replace(/\n{3,}/g, '\n\n').trim();
   const total = calc.total !== null ? calc.total : pedido?.total ?? null;
 
-  return { textoVisible, total, pedido, usage, model };
+  return { textoVisible, total, pedido, escalar, usage, model };
 }
 
 // Menú de prueba representativo (fixtures puros, sin side-effects).

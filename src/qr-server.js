@@ -6,6 +6,13 @@ import { guardarMenuActual } from './pedidos-client.js';
 import { handleVerify, handleIncoming } from './cloud-api/webhook.js';
 import { tenantCount } from './cloud-api/tenants.js';
 import { generarRespuesta } from './claude.js';
+import { actualizarEstadoMensaje } from './comunicaciones-client.js';
+
+// Handoff v1: estados de entrega → wizard. Flag-gated (COMUNICACIONES_ENABLED).
+const COMUNICACIONES = (process.env.COMUNICACIONES_ENABLED ?? 'false') === 'true';
+const onStatus = COMUNICACIONES
+  ? ({ id, status, error }) => actualizarEstadoMensaje(id, status, error)
+  : null;
 
 let currentQR = null;
 let connectionStatus = 'starting';
@@ -337,7 +344,7 @@ export function startQRServer(logger, opts = {}) {
         const sig = req.headers['x-hub-signature-256'];
         let result;
         try {
-          result = await handleIncoming(raw, sig, { logger, menu: fallbackMenu, handleMessage });
+          result = await handleIncoming(raw, sig, { logger, menu: fallbackMenu, handleMessage, onStatus });
         } catch (err) {
           logger.error({ err: err.message, stack: err.stack }, 'webhook handleIncoming falló');
           result = { status: 200 }; // 200 igual: evita que Meta reintente en loop por un bug nuestro
