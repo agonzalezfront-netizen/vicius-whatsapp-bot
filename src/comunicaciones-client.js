@@ -56,9 +56,12 @@ export async function botPausado(jid) {
 }
 
 // Marca la conversación como requiere_humano (escalado). Idempotente en el wizard.
-export async function escalarAHumano(jid) {
+// `motivo` (opcional): marcador|deteccion-verbal|fuera-horario|freno:<x> → la bandeja lo muestra.
+export async function escalarAHumano(jid, motivo) {
+  const body = { accion: 'requiere_humano' };
+  if (motivo) body.motivo = motivo;
   const res = await fetch(`${WIZARD_BASE}/api/conversaciones/${encodeURIComponent(jid)}/estado`, {
-    method: 'POST', headers: _headers(), body: JSON.stringify({ accion: 'requiere_humano' }),
+    method: 'POST', headers: _headers(), body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`escalarAHumano HTTP ${res.status}`);
   return res.json();

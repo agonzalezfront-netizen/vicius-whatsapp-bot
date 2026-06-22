@@ -197,7 +197,7 @@ function dispararFreno(jid, motivo, logger) {
   pausedJids.set(jid, Date.now());
   logger.warn({ jid, motivo }, '🛑 freno disparado — bot pausado, derivado a humano');
   logDerivacion(jid, 'freno:' + motivo, logger);
-  if (COMUNICACIONES) escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalar freno falló (no crítico)'));
+  if (COMUNICACIONES) escalarAHumano(jid, 'freno:' + motivo).catch((e) => logger.warn({ jid, err: e.message }, 'escalar freno falló (no crítico)'));
 }
 
 const normaliza = (s) =>
@@ -448,7 +448,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
     // Handoff v1 Fase 3: fuera de horario el bot no atiende → la conversación queda en
     // cola para que Carla/César la vean al abrir (requiere_humano, priorizada en la bandeja).
     if (COMUNICACIONES) {
-      escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalar fuera-de-horario falló (no crítico)'));
+      escalarAHumano(jid, 'fuera-horario').catch((e) => logger.warn({ jid, err: e.message }, 'escalar fuera-de-horario falló (no crítico)'));
     }
     logDerivacion(jid, 'fuera-horario', logger);
     logger.info({ jid }, 'fuera de horario, respondido con mensaje de cierre');
@@ -546,7 +546,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   const motivoDeriv = esc.escalar ? 'marcador' : (derivoVerbal ? 'deteccion-verbal' : null);
   if (motivoDeriv) {
     if (COMUNICACIONES) {
-      escalarAHumano(jid).catch((e) => logger.warn({ jid, err: e.message }, 'escalarAHumano falló (no crítico)'));
+      escalarAHumano(jid, motivoDeriv).catch((e) => logger.warn({ jid, err: e.message }, 'escalarAHumano falló (no crítico)'));
       logger.info({ jid, via: motivoDeriv }, '🙋 conversación marcada requiere_humano');
     }
     logDerivacion(jid, motivoDeriv, logger);  // medir tasa de derivación aun si el flag está off
