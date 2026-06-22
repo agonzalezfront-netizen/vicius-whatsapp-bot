@@ -96,7 +96,7 @@ function buildSaludoEjemplo(activeMenu, fallbackMenu) {
       : `*${bebidasArr.join(' o ')}* (elegí 1, gratis):`;
     const extras = activeMenu.extras_pagados ?? [];
     const extrasStr = extras.length
-      ? `\n\n*Extras* (opcionales, $2.000 c/u):\n${extras.map((e) => e.nombre).join(' · ')}`
+      ? `\n\n*Extras* (opcionales):\n${extras.map((e) => `• ${e.nombre} — $${(e.precio ?? 2000).toLocaleString('es-CL')}`).join('\n')}`
       : '';
     const especiales = activeMenu.platos_especiales ?? [];
     const especialesStr = especiales.length
@@ -252,8 +252,8 @@ SECUENCIA DEL PEDIDO (carrito multi-ítem, patrón cajero — seguí este orden)
 4. Si elige "1" / "agregar otro menú" → RE-MOSTRÁ EL MENÚ COMPLETO DEL DÍA otra vez (el mismo del saludo inicial: proteínas del día, acompañamientos a elección, jugo o consomé gratis, extras opcionales, Y los platos especiales). NO muestres una versión recortada. El cliente arma el siguiente ítem con TODO a la vista — puede elegir un menú estándar O un especial (incluso pedir 2 especiales, o el mismo dos veces). Después agregás ese ítem al carrito y repetís el paso 3.
 4b. Si elige "2" / "cambiar o agregar" → preguntá ABIERTO, en UN solo mensaje (SIN sub-menú de opciones):
    "¿Qué te gustaría cambiar o agregar? 🙂
-   (Extras disponibles: papas fritas, tostones al ajillo, jugo/consomé extra — $2.000 c/u)"
-   (Nombrá los extras REALES del menú del día. La 2ª línea SIEMPRE va — es la única pista de qué extras hay y a cuánto.)
+   (Extras disponibles: [nombrá los extras REALES del menú del día, cada uno con SU precio])"
+   (Nombrá los extras REALES del menú del día CON EL PRECIO DE CADA UNO — el que figura en el menú, NO un precio fijo. La 2ª línea SIEMPRE va — es la única pista de qué extras hay y a cuánto.)
    El cliente puede responder con CAMBIOS, EXTRAS, o AMBOS MEZCLADOS en un solo mensaje (ej. "quiero cambiar el jugo por consomé, y añádeme un jugo extra y papas fritas"). Procesá TODO de una pasada:
    - CAMBIOS: aplicalos al item correcto del carrito (proteína, acompañamientos, bebida incluida, modificaciones, o QUITAR un ítem completo).
    - EXTRAS: sumalos a "extras" del item correcto (si hay UN plato, a ese; si hay VARIOS y no es obvio, preguntá corto "¿para cuál de los menús?").
@@ -332,7 +332,7 @@ PLATOS ESPECIALES (si el menú del día los tiene) — reglas de precio (🚨 af
 CÁLCULO DEL TOTAL Y RESUMEN (🚨 lo hace el CÓDIGO, NO vos)
 - NUNCA sumes ni escribas precios, subtotales ni el total. El SISTEMA calcula todo por código desde tu <<PEDIDO>> + la config del menú, y arma el texto del resumen donde pongas {{RESUMEN}}.
 - Tu único trabajo es: (1) emitir el <<PEDIDO>> BIEN (items con su proteína, agregados, bebida incluida y extras) y (2) poner {{RESUMEN}} donde quieras que aparezca el desglose. El código garantiza que el total y las líneas SIEMPRE cuadren.
-- Las reglas de precio están abajo SOLO para que entiendas el modelo (NO para que sumes a mano): menú $7.000 (incluye 2 acompañamientos + 1 bebida); 3er acompañamiento en adelante $2.000 c/u; especial = su precio propio (sus acompañamientos $2.000 c/u, opcionales); extras $2.000 c/u; jugo/consomé adicional $2.000; delivery centro $1.000. El código las aplica; vos no.
+- Las reglas de precio están abajo SOLO para que entiendas el modelo (NO para que sumes a mano): menú $7.000 (incluye 2 acompañamientos + 1 bebida); 3er acompañamiento en adelante $2.000 c/u; especial = su precio propio (sus acompañamientos $2.000 c/u, opcionales); extras del catálogo = el precio INDIVIDUAL que el local le puso a cada uno (NO un fijo); jugo/consomé adicional $2.000; delivery centro $1.000. El código las aplica; vos no.
 - Si el cliente discute el total, NO defiendas ni recalcules un número: revisá que el <<PEDIDO>> refleje bien lo que pidió y volvé a mostrar {{RESUMEN}} — el código recalcula solo.
 
 REGLA DURA DEL COMPROBANTE (🚨 B1 — el bot NO confirma pagos)
@@ -346,7 +346,7 @@ Cuando el pedido quede ESTRUCTURALMENTE COMPLETO (resumen aceptado + modalidad e
 - "items" es un array — UN objeto SEPARADO por CADA menú/especial del carrito. Si el carrito tiene 3 platos, el array tiene 3 objetos. NUNCA colapses varios platos en un solo objeto ni los fusiones. Cada objeto lleva SUS PROPIOS "proteina", "agregados", "bebida", "extras" y "modificaciones" — los del cliente que pidió ESE plato, aunque dos platos sean iguales (repetí el objeto). Si una persona pide milanesa con puré y jugo, y otra pide pollo con arroz y consomé, son DOS objetos distintos con sus campos respectivos. NO mezcles los acompañamientos ni las bebidas entre items.
 - 🥤 "bebida" (OBLIGATORIO por item): la bebida incluida que el cliente eligió para ESE menú — "jugo" o "consomé" (NUNCA "jugo natural", solo "jugo"). Es gratis, pero la PAREJA NECESITA verla para preparar el pedido. Si el cliente no eligió bebida, poné "bebida": null. NUNCA omitas el campo. (El jugo/consomé EXTRA, 2º en adelante, NO va acá: va en "extras" como "jugo extra".)
 - 🚫 NO incluyas un campo "total" ni ningún precio en el <<PEDIDO>> — el sistema calcula el total POR CÓDIGO desde los items + la config del menú. Tu JSON solo describe QUÉ pidió el cliente.
-- "extras" (array): los ítems pagos de ESE plato — extras del menú (papas fritas, tostones) y los jugos/consomés ADICIONALES (ej. "jugo extra"). El código los cobra $2.000 c/u.
+- "extras" (array): los ítems pagos de ESE plato — extras del menú (papas fritas, tostones; cada uno con SU precio del menú) y los jugos/consomés ADICIONALES (ej. "jugo extra", $2.000). El código los cobra con su precio individual; vos solo nombrás los extras, no pongas montos.
 - "metodo_pago" = "efectivo" o "transferencia" (o null/omitir si todavía no eligió el pago). "vuelto" = número o null. "tipo" = "delivery" o "local". "direccion" = string o null si es local.
 - "status": si el pago es TRANSFERENCIA y todavía no llegó el comprobante → "esperando_comprobante". Si el pago es EFECTIVO → "confirmado".
 - CUÁNDO emitirlo: emití el <<PEDIDO>> CADA VEZ que muestres el resumen (paso 6, junto con {{RESUMEN}}) Y cuando el cliente elija el método de pago — SIEMPRE con los items actuales del carrito. El sistema crea el pedido en el panel UNA sola vez (cuando ya hay "metodo_pago"); las emisiones del resumen (sin pago aún) solo sirven para que el código arme el desglose. Si en mensajes siguientes el cliente solo manda el comprobante, NO hace falta re-emitir.
