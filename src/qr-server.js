@@ -213,6 +213,20 @@ export function startQRServer(logger, opts = {}) {
     }
 
     if (req.url === '/api/menu/today' && req.method === 'POST') {
+      // Guarda 2 (aislamiento dev↔prod): solo el wizard del MISMO ambiente puede publicar.
+      // El wizard manda X-Publish-Token; lo validamos contra MENU_PUBLISH_TOKEN (distinto por
+      // ambiente). Fail-OPEN si el token no está seteado (transición: prod aún sin token →
+      // sigue aceptando). Fail-CLOSED si está seteado → una publicación de otro ambiente da 403.
+      const expectedToken = process.env.MENU_PUBLISH_TOKEN;
+      if (expectedToken) {
+        if (req.headers['x-publish-token'] !== expectedToken) {
+          logger.warn('POST /api/menu/today RECHAZADO: X-Publish-Token inválido/ausente (¿publicación de otro ambiente?)');
+          jsonResponse(res, 403, { ok: false, errors: ['X-Publish-Token inválido o ausente — publicación bloqueada por aislamiento de ambiente'] });
+          return;
+        }
+      } else {
+        logger.warn('MENU_PUBLISH_TOKEN no seteado → publicación SIN validar token (fail-open de transición; setear en el lote dev→prod)');
+      }
       let body;
       try {
         body = await readJsonBody(req);
