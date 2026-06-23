@@ -16,6 +16,9 @@ function nowInTZ(tz, now = new Date()) {
 
 // `now` opcional (default ahora) para poder testear horarios sin depender del reloj.
 export function estaAbierto(menu, tz = process.env.TZ ?? 'America/Santiago', now = new Date()) {
+  // Bypass de horario SOLO en staging: BYPASS_HORARIO=true → siempre "abierto", para poder probar
+  // fuera de horario en dev. En prod la env var NO está → horario real (L-S 12-19 / Dom 12-18) intacto.
+  if (process.env.BYPASS_HORARIO === 'true') return true;
   const { dia, hh, mm } = nowInTZ(tz, now);
   const rango = menu.horario?.[dia];
   if (!rango) return false;
