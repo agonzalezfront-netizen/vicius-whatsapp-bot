@@ -13,20 +13,48 @@ const GRAPH_BASE = `https://graph.facebook.com/${GRAPH_VERSION}`;
 // los mensajes al número de esa WABA NO llegan a nuestro /webhook. Idempotente:
 // llamarla de más no rompe nada. POST /{waba-id}/subscribed_apps con el token.
 // Doc: https://developers.facebook.com/docs/whatsapp/cloud-api/guides/set-up-webhooks
-export async function subscribeAppToWaba(wabaId, token, logger = console) {
+//
+// OVERRIDE de webhook por WABA (staging sin romper prod): el webhook de la UI de Meta es
+// ÚNICO por APP y apunta a PROD. Cambiarlo desviaría TODOS los entrantes (incluido el número
+// real) a staging → rompería el piloto en vivo. La vía limpia es el override por WABA:
+// `POST /{waba-id}/subscribed_apps` con body { override_callback_uri, verify_token } setea un
+// webhook propio SOLO para esa WABA, sin tocar el de la app (prod). Como las WABAs de prod y de
+// test son distintas, el override de la WABA de test → bot staging, y prod queda intacto.
+// Doc: https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/override/
+// Meta verifica la override URL con un GET de challenge (handleVerify lo responde con WA_VERIFY_TOKEN).
+export async function subscribeAppToWaba(wabaId, token, logger = console, opts = {}) {
   if (!wabaId || !token) return { ok: false, error: 'falta wabaId o token' };
+  const { overrideCallbackUri, verifyToken } = opts;
+  const usaOverride = Boolean(overrideCallbackUri && verifyToken);
   try {
-    const res = await fetch(`${GRAPH_BASE}/${wabaId}/subscribed_apps`, {
+    // Paso 1 (siempre): asegurar la suscripción app↔WABA. Es lo que necesita prod (sin override)
+    // y, para staging, garantiza que la suscripción exista antes de aplicar el override.
+    const res1 = await fetch(`${GRAPH_BASE}/${wabaId}/subscribed_apps`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}` },
     });
-    const j = await res.json().catch(() => ({}));
-    if (res.ok && j?.success !== false) {
+    const j1 = await res1.json().catch(() => ({}));
+    if (!(res1.ok && j1?.success !== false)) {
+      logger.warn?.({ wabaId, status: res1.status, err: j1?.error }, 'no se pudo suscribir la app a la WABA');
+      return { ok: false, status: res1.status, error: j1?.error?.message };
+    }
+    if (!usaOverride) {
       logger.info?.({ wabaId }, '🔔 app suscrita a la WABA (webhooks entrantes habilitados)');
       return { ok: true };
     }
-    logger.warn?.({ wabaId, status: res.status, err: j?.error }, 'no se pudo suscribir la app a la WABA');
-    return { ok: false, status: res.status, error: j?.error?.message };
+    // Paso 2 (solo staging): setear el override de callback SOLO para esta WABA.
+    const res2 = await fetch(`${GRAPH_BASE}/${wabaId}/subscribed_apps`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ override_callback_uri: overrideCallbackUri, verify_token: verifyToken }),
+    });
+    const j2 = await res2.json().catch(() => ({}));
+    if (res2.ok && j2?.success !== false) {
+      logger.info?.({ wabaId, override: overrideCallbackUri }, '🔔 override de webhook por WABA aplicado (staging) — prod intacto');
+      return { ok: true, override: overrideCallbackUri };
+    }
+    logger.warn?.({ wabaId, status: res2.status, err: j2?.error }, 'suscripción OK pero NO se pudo aplicar el override de webhook (¿el token tiene whatsapp_business_management?)');
+    return { ok: false, status: res2.status, error: j2?.error?.message, subscribedSinOverride: true };
   } catch (err) {
     logger.warn?.({ wabaId, err: err.message }, 'error suscribiendo la app a la WABA');
     return { ok: false, error: err.message };

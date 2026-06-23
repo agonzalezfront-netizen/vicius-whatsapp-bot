@@ -186,7 +186,13 @@ async function bootstrap() {
     // Auto-suscribir la app a la WABA (entrantes). Idempotente; clave cuando Meta crea
     // una WABA nueva al registrar el número (sus webhooks no llegan hasta suscribir la app).
     if (process.env.WA_WABA_ID && process.env.WA_TOKEN) {
-      subscribeAppToWaba(process.env.WA_WABA_ID, process.env.WA_TOKEN, logger).catch(() => {});
+      // WA_WEBHOOK_OVERRIDE_URL existe SOLO en staging → el bot staging se auto-registra un webhook
+      // override para SU WABA (la de test) en cada boot, sin tocar el webhook de app (prod). En prod
+      // esta env var NO está → comportamiento de siempre (suscripción simple al webhook de app).
+      subscribeAppToWaba(process.env.WA_WABA_ID, process.env.WA_TOKEN, logger, {
+        overrideCallbackUri: process.env.WA_WEBHOOK_OVERRIDE_URL,
+        verifyToken: process.env.WA_VERIFY_TOKEN,
+      }).catch(() => {});
     } else {
       logger.warn('TRANSPORT=cloud sin WA_WABA_ID — no auto-suscribo la WABA (verificá webhooks manual)');
     }
