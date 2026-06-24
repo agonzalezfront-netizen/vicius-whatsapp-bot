@@ -6,6 +6,8 @@
 // TODO es best-effort desde el lado de quien llama: la comunicación con el wizard
 // NO debe romper el flujo del bot si el wizard no responde (se loguea y sigue).
 
+import { enviarPushEquipo } from './push.js';
+
 const WIZARD_BASE = process.env.WIZARD_BASE ?? 'https://viciusstudio.cl/wizard';
 const WIZARD_AUTH =
   'Basic ' +
@@ -64,7 +66,21 @@ export async function escalarAHumano(jid, motivo) {
     method: 'POST', headers: _headers(), body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`escalarAHumano HTTP ${res.status}`);
-  return res.json();
+  const out = await res.json();
+  // Fase 4 (Web Push): avisar al equipo en el acto, para que suene aunque el teléfono esté bloqueado.
+  // Fire-and-forget y best-effort: si el push falla, el escalado YA quedó hecho (no se revierte).
+  enviarPushEquipo({ title: '🙋 Un cliente espera', body: 'Tenés una conversación sin atender en El Sazón.' })
+    .catch(() => {});
+  return out;
+}
+
+// Fase 5 (constancia): el poller lista la bandeja para re-pushear las conversaciones que siguen en
+// requiere_humano sin tomar. Best-effort desde el caller.
+export async function listarConversaciones() {
+  const res = await fetch(`${WIZARD_BASE}/api/conversaciones`, { method: 'GET', headers: _headers(false) });
+  if (!res.ok) throw new Error(`listarConversaciones HTTP ${res.status}`);
+  const data = await res.json();
+  return data.conversaciones ?? [];
 }
 
 // Devuelve la conversación al bot (timeout 25min / resolución). Idempotente.
