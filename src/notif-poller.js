@@ -11,7 +11,7 @@ function msgValidado() {
 // MSG-3: pago rechazado → con la razón que eligió la dueña.
 function msgRechazado(razon) {
   const r = (razon || 'hubo un inconveniente con el comprobante').trim();
-  return `Hola 🙂 Tuvimos un problema con tu comprobante:\n\n_${r}_\n\n¿Podés revisarlo y reenviarlo? Si tenés alguna duda, Carla y César te ayudan enseguida 🙏`;
+  return `Hola 🙂 Tuvimos un problema con tu comprobante:\n\n_${r}_\n\n¿Puedes revisarlo y reenviarlo? Si tienes alguna duda, Carla y César te ayudan enseguida 🙏`;
 }
 
 // Etapa en_camino (delivery): el pedido salió del local.

@@ -253,16 +253,16 @@ export function renderActiveMenuForPrompt(menu) {
 - Un menú $${menu.price_typical} = 1 proteína del día + 2 acompañamientos a elección + 1 ${bebidaUnidad}.
 - Proteínas de hoy:
 ${proteinas}
-- Acompañamientos incluidos (elegí 2): ${incluidos}
-- Bebida incluida (elegí 1, gratis — nombrala por su nombre, NO "bebida"): ${bebidas}
-  🚨 BEBIDAS DISPONIBLES HOY (fuente de verdad): SOLO ${bebidas}. Esta lista —no el título genérico "jugo o consomé"— manda. Si el cliente pide una bebida que NO está acá (ej. pide "jugo" y hoy solo hay consomé), respondé "hoy no tenemos jugo, solo ${bebidas} 🙂": NO la ofrezcas, NO la agregues al carrito, NO inventes precio (ni gratis ni $2.000 de extra). La bebida extra de $2.000 SOLO aplica a bebidas que SÍ están en esta lista.
+- Acompañamientos incluidos (elige 2): ${incluidos}
+- Bebida incluida (elige 1, gratis — nombrala por su nombre, NO "bebida"): ${bebidas}
+  🚨 BEBIDAS DISPONIBLES HOY (fuente de verdad): SOLO ${bebidas}. Esta lista —no el título genérico "jugo o consomé"— manda. Si el cliente pide una bebida que NO está aquí (ej. pide "jugo" y hoy solo hay consomé), respondé "hoy no tenemos jugo, solo ${bebidas} 🙂": NO la ofrezcas, NO la agregues al carrito, NO inventes precio (ni gratis ni $2.000 de extra). La bebida extra de $2.000 SOLO aplica a bebidas que SÍ están en esta lista.
 - Extras opcionales (se cobran aparte): ${extras}
 - Los primeros 2 acompañamientos son gratis (aunque se repitan, ej. doble puré = gratis). Del 3º en adelante, +$2.000 c/u.${especialesStr ? `
 - PLATOS ESPECIALES (precio propio; incluyen 1 ${bebidaUnidad} gratis; los acompañamientos se cobran $2.000 c/u):
 ${especialesStr}
-  🚨 TODOS estos especiales están DISPONIBLES HOY (la dueña los activó para hoy). La descripción entre guiones es texto informativo del catálogo (ej. "Solo domingos" describe su día típico) — NUNCA la uses para negar disponibilidad ni rechazar el pedido: si figura acá, se vende HOY.` : ''}${repertorioStr ? `
+  🚨 TODOS estos especiales están DISPONIBLES HOY (la dueña los activó para hoy). La descripción entre guiones es texto informativo del catálogo (ej. "Solo domingos" describe su día típico) — NUNCA la uses para negar disponibilidad ni rechazar el pedido: si figura aquí, se vende HOY.` : ''}${repertorioStr ? `
 - REPERTORIO (el local los ofrece OTROS días, HOY NO están): ${repertorioStr}
   🚨 Estos ítems EXISTEN pero HOY NO se venden. Si el cliente pide uno, NO lo ofrezcas como disponible hoy y NO lo agregues al pedido. Declinalo así: "hoy no tenemos [ítem], pero otros días sí 🙂" e INMEDIATAMENTE listá TODAS las opciones que SÍ hay hoy (todas las proteínas del día + especiales si hay), no una sola — ej: "hoy tenemos ${proteinas.replace(/^- /gm, '').split('\n').join(', ')}". Que el cliente vea el abanico completo del día. Tampoco digas que "no existe" (sí existe, otro día). Solo HOY no.` : ''}
 
-REGLA PARA EL BOT: usá estos datos exactos del menú del día. Ignorá el menú de fallback.`;
+REGLA PARA EL BOT: usa estos datos exactos del menú del día. Ignorá el menú de fallback.`;
 }

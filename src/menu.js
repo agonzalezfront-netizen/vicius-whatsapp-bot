@@ -25,7 +25,7 @@ export function renderMenuForPrompt(menu) {
 - Un menú $${menu.plato_estandar.precio} CLP = proteína del día + ${incluyeN} agregados a elección + jugo natural.
 - Proteínas del día:
 ${proteinas}
-- Agregados incluidos (elegí ${incluyeN}): ${incluidos}
+- Agregados incluidos (elige ${incluyeN}): ${incluidos}
 - Extras opcionales (se cobran aparte): ${extras}
 - Los primeros 2 agregados son gratis (aunque se repitan). Del 3º en adelante, +$${menu.extra_3er_agregado ?? 2000} c/u.
 - Pago: ${pago}.`;

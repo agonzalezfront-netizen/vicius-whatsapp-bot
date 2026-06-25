@@ -238,7 +238,7 @@ function formatCLP(n) {
 
 // CÁLCULO DETERMINISTA: el LLM no suma. Declara las líneas de precio en
 // <<CALC>>[7000,2000,...]<<FIN>> y escribe "{{TOTAL}}" donde va el monto.
-// Acá sumamos el array, reemplazamos {{TOTAL}}, recortamos el bloque, y
+// Aquí sumamos el array, reemplazamos {{TOTAL}}, recortamos el bloque, y
 // devolvemos { limpio, total } (total = número o null si no hubo <<CALC>>).
 export function procesarCalc(texto) {
   const m = texto.match(/<<CALC>>([\s\S]*?)<<FIN>>/);
@@ -300,7 +300,7 @@ export function extraerPedido(texto) {
     return { limpio, pedido: JSON.parse(m[1].trim()), parseError: null };
   } catch (e) {
     // FIX A (observabilidad): antes este catch era silencioso → no sabíamos si Haiku
-    // emitía el bloque con JSON malformado. Ahora devolvemos el bloque crudo + el error
+    // emitea el bloque con JSON malformado. Ahora devolvemos el bloque crudo + el error
     // para loguearlo en el caller (bug 2026-06-08: pedido no creado, causa indistinguible).
     return { limpio, pedido: null, parseError: { raw: m[1].trim(), err: e.message } };
   }
@@ -418,7 +418,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
         // B1: el bot NO confirma el pago. Queda pendiente de validación humana.
         // MSG-1 (spec gestor de pedidos): "en proceso de confirmación", NO "entró a cocina".
         await sendBotMessage(sock, jid, {
-          text: '¡Recibí tu comprobante! 🙌\n\nTu pago quedó *en revisión*. Carla y César lo confirman a mano y, apenas esté validado, te aviso acá y tu pedido entra a cocina.\n\nEs un ratito 🙂',
+          text: '¡Recibí tu comprobante! 🙌\n\nTu pago quedó *en revisión*. Carla y César lo confirman a mano y, apenas esté validado, te aviso aquí y tu pedido entra a cocina.\n\nEs un ratito 🙂',
         });
         logger.info({ jid, pedidoId }, '🧾 comprobante subido → pendiente_validacion (NO confirmado, espera validación humana)');
       } catch (err) {
@@ -471,7 +471,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
       dispararFreno(jid, 'regateo-insistente', logger);
       await sleep(jitterDelay());
       await sendBotMessage(sock, jid, {
-        text: 'Sobre el precio ya está todo dicho 🙂 Le aviso a Carla y César que querías hablarlo; si surge algo, te escriben. Por acá te ayudo con tu pedido al precio del menú cuando quieras.',
+        text: 'Sobre el precio ya está todo dicho 🙂 Le aviso a Carla y César que querías hablarlo; si surge algo, te escriben. Por aquí te ayudo con tu pedido al precio del menú cuando quieras.',
       });
       logger.info({ jid, descuento: n }, '🛑 freno regateo → derivado');
       return;
@@ -508,7 +508,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   // El historial del chat NO incluye los avisos que el poller mandó al avanzar el
   // pedido por el panel (validado/en_camino/entregado...), así que queda ANCLADO en
   // el último turno conversacional (típicamente esperando el comprobante). Eso hacía
-  // que el bot contradijera el estado real — bug 2026-06-10: decía "espero el
+  // que el bot contradijera el estado real — bug 2026-06-10: dia "espero el
   // comprobante" con el pedido YA entregado, y el system prompt solo NO alcanzaba a
   // overridearlo (reproducido 12/12). Inyectamos un turno sintético del asistente con
   // el estado real para que la conversación que ve Claude sea coherente con la realidad.

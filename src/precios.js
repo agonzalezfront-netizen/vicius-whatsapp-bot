@@ -16,7 +16,10 @@
 const EXTRA_DEFAULT = 2000;
 const DELIVERY_CENTRO = 1000;
 
-const norm = (s) => String(s ?? '').trim().toLowerCase();
+// Normalización robusta a acentos/tildes (alineada con handlers.js `normaliza` y claude.js `_norm`):
+// quita diacríticos vía NFD para que "Puré"/"Pure"/"puré" matcheen igual el nombre del especial/extra
+// contra el menú. Antes solo trim+lowercase → una diferencia de tilde erraba el precio (bug de cobro).
+const norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
 
 function basePlato(proteina, menuActivo, fallback) {
   const especiales = menuActivo?.platos_especiales ?? [];
