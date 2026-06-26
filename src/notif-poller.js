@@ -19,9 +19,12 @@ function msgEnCamino() {
   return '¡Tu pedido va en camino! 🛵 Llega en un ratito. ¡Que lo disfrutes!';
 }
 
-// Etapa listo (retiro): el pedido está pronto para retirar en el local.
+// Etapa listo (retiro): el pedido está pronto para retirar en el local. Texto CONFIRMADO por
+// Alberto (plan retiro local 2026-06-26, cola 83a88746). Es el ÚNICO aviso proactivo del retiro
+// (el cierre "retirado" NO manda WhatsApp — ver backend avanzar): evita que el cliente llegue
+// antes de tiempo y le da la dirección.
 function msgListo() {
-  return '¡Tu pedido está listo! 🏠 Te esperamos para retirarlo cuando quieras.';
+  return '🏠 Tu pedido está listo para retirar, te esperamos en Vicuña Mackenna Oriente 6571.';
 }
 
 // Cierre (delivery): el pedido fue entregado. Mensaje cordial de despedida.

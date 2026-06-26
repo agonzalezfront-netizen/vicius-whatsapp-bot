@@ -4,6 +4,7 @@ import { crearPedido, subirComprobante, buscarPedidoEsperandoComprobante, estado
 import { getActiveMenu } from './active-menu.js';
 import { calcularPedido, construirResumen } from './precios.js';
 import { registrarMensaje, botPausado, escalarAHumano } from './comunicaciones-client.js';
+import { enviarPushEquipo } from './push.js';
 
 // Sección Comunicaciones (handoff v1). Flag OFF por default → comportamiento idéntico
 // al actual (cero riesgo al deployar). ON cuando el wizard tenga los endpoints + la UI:
@@ -606,7 +607,12 @@ export async function handleMessage({ sock, logger, menu, msg }) {
           vuelto: pedido.vuelto ?? null,
           tipo: pedido.tipo,
           direccion: pedido.direccion ?? null,
-          status: pedido.metodo_pago === 'transferencia' ? 'esperando_comprobante' : 'validado',
+          // efectivo/en_local: pago resuelto presencialmente (sin comprobante que validar) →
+          // entra DIRECTO a cocina. Antes mandaba 'validado', pero ese status quedaba FUERA del
+          // filtro del board (PEDIDO_ESTADOS_ACTIVOS) → el pedido era invisible para la cocina
+          // (bug latente que afectaba efectivo y retiro local, hallado 2026-06-26). 'en_cocina' es
+          // el status canónico de "pagado, a cocina" (el backend ya colapsa validado→en_cocina).
+          status: pedido.metodo_pago === 'transferencia' ? 'esperando_comprobante' : 'en_cocina',
         });
         ultimaFirmaCreada.set(jid, firma);
         // Pedido creado: limpiar el carry-forward para que estos items no se filtren
@@ -615,6 +621,23 @@ export async function handleMessage({ sock, logger, menu, msg }) {
         // Si es transferencia, guardamos el link jid→pedidoId para asociar el comprobante.
         if (pedido.metodo_pago === 'transferencia') pedidosEnCurso.set(jid, res.id);
         logger.info({ jid, pedidoId: res.id, status: res.status, total: calc.total }, '🧾 pedido creado en wizard');
+        // Pieza 3 (plan retiro local 2026-06-26) — avisar al dueño/cocina que ENTRÓ un pedido.
+        // Push tipo "pedido-nuevo" (distinto de requiere_humano), tag único por pedido para que
+        // ninguno se pise/colapse, y abre el board /pedidos al tocarlo. Aplica a delivery Y retiro:
+        // la modalidad va BIEN VISIBLE en el título (texto confirmado por Alberto). Best-effort:
+        // nunca rompe el flujo del cliente (si el push falla, el pedido ya quedó creado igual).
+        const modalidad = pedido.tipo === 'delivery' ? 'DELIVERY' : 'RETIRO LOCAL';
+        const itemsTxt = calc.lineas.map((l) => l.proteina).join(', ') || `${pedido.items.length} ítem(s)`;
+        const ref = String(res.id).slice(-4).toUpperCase();
+        enviarPushEquipo(
+          {
+            title: `🧾 Nuevo pedido — ${modalidad}`,
+            body: `#${ref} · ${itemsTxt} · Total $${calc.total.toLocaleString('es-CL')}`,
+            url: 'pedidos',
+            tag: `pedido-nuevo-${res.id}`,
+          },
+          logger,
+        ).catch(() => {});
       } catch (err) {
         logger.error({ jid, err: err.message }, 'crearPedido FALLA (el cliente igual recibe su confirmación)');
       }
