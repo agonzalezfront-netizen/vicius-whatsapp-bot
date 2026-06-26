@@ -273,7 +273,7 @@ SECUENCIA DEL PEDIDO (carrito multi-ítem, patrón cajero — seguí este orden)
    (Adaptá los nombres a lo que dijo.) Aplica la opción que elija y seguí.
    🚨 PRE-REQUISITO ANTES de plantear esta ambigüedad: la bebida que el cliente nombra TIENE que estar en BEBIDAS DISPONIBLES HOY (ver el menú del día arriba). Si NO está (ej. el cliente dice "jugo" y hoy solo se publicó consomé), NO hay ninguna ambigüedad ni dos opciones que ofrecer: respondé "hoy no tenemos jugo, solo consomé 🙂" y seguí. NUNCA ofrezcas cambiar a, ni agregar como extra, una bebida que hoy no está en el menú.
    PERO si el mensaje tiene UNA SOLA lectura posible, ejecuta directo SIN preguntar (no agregues fricción donde no hay ambigüedad): "papas fritas" cuando no hay papas en el pedido = extra directo; "mejor consomé en vez de jugo" / "cambiá el jugo por consomé" = cambio directo (si ambas bebidas están hoy); "otro jugo más" / "un consomé aparte" = extra directo (si esa bebida está hoy).
-5. Cuando el cliente cierra el carrito ("3"/"cerrar"/"eso es todo") o ya te dio todo lo que quiere → NO muestres el total todavía (todavía no sabes si hay delivery, que cambia el monto). Primero pregunta la MODALIDAD: "¿Es para delivery o lo pasas a buscar al local?".
+5. Cuando el cliente cierra el carrito ("3"/"cerrar"/"eso es todo") o ya te dio todo lo que quiere → NO muestres el total todavía (todavía no sabes si hay delivery, que cambia el monto). Primero pregunta la MODALIDAD: "¿Es para delivery o retiro en local?".
    - Delivery: captura la dirección COMPLETA en pasos cortos, no todo de una:
      a) "¿A qué dirección? (calle y número)".
      b) Después pregunta "¿Es casa o edificio/departamento?".
@@ -781,6 +781,24 @@ function _textoDe(res) {
   return res.content.filter((c) => c.type === 'text').map((c) => c.text).join('').trim();
 }
 
+// ¿El texto trae un <<PEDIDO>> parseable y con ítems? (los ítems solo viven en ese bloque).
+export function _tienePedidoConItems(texto) {
+  const p = _parsePedido(texto);
+  return !!(p && Array.isArray(p.items) && p.items.length);
+}
+
+// Corrección dura (bug staging 2026-06-26): el bot escribió "{{RESUMEN}}" sin emitir el <<PEDIDO>>.
+function _correccionFaltaPedido() {
+  return [
+    'CORRECCIÓN OBLIGATORIA: tu respuesta anterior incluyó el placeholder "{{RESUMEN}}" pero NO incluyó',
+    'el bloque <<PEDIDO>>...<<FIN>>. Sin ese bloque el sistema NO puede armar el resumen y el cliente ve',
+    'un resumen VACÍO (solo "Aquí va tu pedido:" sin ítems ni total). Reescribe tu mensaje manteniendo el',
+    'mismo texto y el "{{RESUMEN}}" donde va el resumen, y AGREGA al final, en una línea aparte, el bloque',
+    '<<PEDIDO>>{...}<<FIN>> con TODOS los ítems actuales del carrito (cada uno con su proteína, agregados,',
+    'bebida y extras). JSON válido, comillas dobles, sin campo "total".',
+  ].join(' ');
+}
+
 export async function generarRespuesta({ menu, history, userMessage, sesion = 'nueva', estadoPedido = null }) {
   const messages = [
     ...history.map((h) => ({ role: h.role, content: h.content })),
@@ -832,6 +850,21 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
     }
     texto = texto.replace(/<<PEDIDO>>[\s\S]*?<<FIN>>/g, '').trim();
     texto = _fallbackMulti(union, menu);
+  }
+
+  // Guard determinista (bug staging 2026-06-26): si el bot ESCRIBE {{RESUMEN}} pero NO emitió un
+  // <<PEDIDO>> parseable, handlers no puede armar el resumen (los ítems SOLO viven en ese bloque) →
+  // el cliente ve "Aquí va tu pedido:" vacío. Regenerar UNA vez forzando el bloque. No depende de
+  // que el LLM se acuerde al primer intento (memoria: estado crítico del bot ≠ marcador del LLM).
+  // Solo agrega una llamada en el caso defectuoso; el happy-path no paga nada.
+  if (texto.includes('{{RESUMEN}}') && !_tienePedidoConItems(texto)) {
+    const rFix = await _callLLM({
+      model: MODEL, max_tokens: 800,
+      system: [...system, { type: 'text', text: _correccionFaltaPedido() }],
+      messages,
+    });
+    const tFix = _textoDe(rFix);
+    if (_tienePedidoConItems(tFix)) texto = tFix; // solo adoptamos si ahora SÍ trae el bloque
   }
 
   return { texto, usage: usageTotal };

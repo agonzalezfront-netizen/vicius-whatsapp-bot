@@ -162,6 +162,11 @@ async function getGenerar() {
   return _generarRespuesta;
 }
 
+// Cálculo/resumen por código (precios.js) + menú activo — para replicar la post-lógica real
+// de handlers.js (reemplazo de {{RESUMEN}} y total). Import dinámico: evita side-effects al cargar.
+const { calcularPedido, construirResumen } = await import('../src/precios.js');
+const { getActiveMenu: getActiveMenuLib } = await import('../src/active-menu.js');
+
 export async function runBotTurn({ menu, history, userMessage, sesion = 'nueva', estadoPedido = null, meter }) {
   const generarRespuesta = await getGenerar();
   const model = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
@@ -173,21 +178,40 @@ export async function runBotTurn({ menu, history, userMessage, sesion = 'nueva',
     meter.assertUnderCap(); // corta el loop si cruzamos el tope
   }
 
-  // Misma cadena que handlers.js: primero CALC (suma + {{TOTAL}}), luego PEDIDO, luego ESCALAR.
+  // Misma cadena que handlers.js: primero CALC (suma + {{TOTAL}} OBSOLETOS), luego PEDIDO, luego ESCALAR.
   const calc = procesarCalc(texto);
   const { limpio: sinPedido, pedido } = extraerPedido(calc.limpio);
   // Handoff v1: recortar el marcador <<ESCALAR>> y exponer si el bot derivó a humano.
   const marcador = /<<ESCALAR>>/.test(sinPedido);
-  const textoVisible = sinPedido.replace(/<<ESCALAR>>/g, '').replace(/\n{3,}/g, '\n\n').trim();
+  let textoVisible = sinPedido.replace(/<<ESCALAR>>/g, '');
+
+  // 🔁 SINCRONIZADO con handlers.js (2026-06-26): el resumen y el total se arman POR CÓDIGO
+  // (precios.js) desde el <<PEDIDO>>, y se inyectan donde el bot puso {{RESUMEN}}. El harness
+  // ANTES no replicaba esto (quedó en la era <<CALC>>/{{TOTAL}}) → falso positivo "resumen vacío".
+  let total = null;
+  if (pedido) {
+    const calcPedido = calcularPedido(pedido.items, pedido.tipo, getActiveMenuLib(), menu);
+    if (textoVisible.includes('{{RESUMEN}}')) {
+      textoVisible = textoVisible.replace(/\{\{RESUMEN\}\}/g, construirResumen(calcPedido));
+    }
+    total = calcPedido.total;
+  }
+  // Limpieza final (handlers.js): borrar cualquier placeholder/bloque remanente que el cliente no debe ver.
+  textoVisible = textoVisible
+    .replace(/<<CALC>>[\s\S]*?<<FIN>>/g, '')
+    .replace(/\{\{RESUMEN\}\}/g, '')
+    .replace(/\{\{TOTAL\}\}/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
   // Red de seguridad determinista (bug 2026-06-22): derivación verbal sin marcador → escala
   // igual, salvo que haya emisión de pedido (mismo guard que handlers.js).
   const { derivacionVerbal } = await import('../src/claude.js');
   const derivoVerbal = !pedido && derivacionVerbal(textoVisible);
   const escalar = marcador || derivoVerbal;
   const escalarVia = marcador ? 'marcador' : (derivoVerbal ? 'deteccion-verbal' : null);
-  const total = calc.total !== null ? calc.total : pedido?.total ?? null;
 
-  return { textoVisible, total, pedido, escalar, escalarVia, usage, model };
+  return { textoVisible, total, pedido, escalar, escalarVia, usage, model, textoCrudo: texto };
 }
 
 // Menú de prueba representativo (fixtures puros, sin side-effects).
