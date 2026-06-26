@@ -43,9 +43,11 @@ async function _getSubscriptions() {
   return d.subscriptions ?? [];
 }
 
-async function _prune(endpoints) {
+// Robustez push (2026-06-26): en vez de BORRAR la suscripción caída (410/404), la MARCAMOS como
+// caída en el wizard → el board lo detecta y re-suscribe + avisa (banner). Re-suscribir la sana.
+async function _markDown(endpoints) {
   if (!endpoints.length) return;
-  await fetch(`${WIZARD_BASE}/api/push/prune`, {
+  await fetch(`${WIZARD_BASE}/api/push/mark-down`, {
     method: 'POST',
     headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA, 'Content-Type': 'application/json' },
     body: JSON.stringify({ endpoints }),
@@ -75,15 +77,16 @@ export async function enviarPushEquipo({ title, body, url = 'comunicaciones', ta
         sent++;
       } catch (err) {
         const code = err?.statusCode;
-        // 404/410 = suscripción muerta (device desinstaló / permiso revocado) → borrarla.
+        // 404/410 = suscripción muerta (device desinstaló / permiso revocado / expiró) → marcarla
+        // caída (no borrar) para que el board la detecte y re-suscriba + avise.
         if (code === 404 || code === 410) caducadas.push(s.endpoint);
         else logger.warn?.({ code, err: err?.message }, 'push: envío a una suscripción falló');
       }
     }),
   );
   if (caducadas.length) {
-    await _prune(caducadas);
-    logger.info?.({ pruned: caducadas.length }, 'push: suscripciones caducadas borradas');
+    await _markDown(caducadas);
+    logger.info?.({ caidas: caducadas.length }, 'push: suscripciones caídas marcadas (el board re-suscribe)');
   }
   if (sent) logger.info?.({ sent }, '🔔 push enviado al equipo');
   return { sent, pruned: caducadas.length };
