@@ -116,6 +116,27 @@ export function makeCloudClient(tenant, logger = console) {
     });
   }
 
+  // Mensaje interactivo de LISTA (tier básico). sections = [{title, rows:[{id,title,description?}]}].
+  // Límites WhatsApp: máx 10 filas en total, title ≤24, description ≤72, botón ≤20.
+  async function sendList(to, bodyText, sections, { button = 'Elegir', header, footer } = {}) {
+    let restantes = 10;
+    const secs = (sections ?? []).map((s) => {
+      const rows = (s.rows ?? []).slice(0, Math.max(0, restantes)).map((r) => {
+        const row = { id: String(r.id), title: String(r.title).slice(0, 24) };
+        if (r.description) row.description = String(r.description).slice(0, 72);
+        return row;
+      });
+      restantes -= rows.length;
+      return { title: String(s.title ?? '').slice(0, 24), rows };
+    }).filter((s) => s.rows.length);
+    const interactive = { type: 'list', body: { text: bodyText }, action: { button: String(button).slice(0, 20), sections: secs } };
+    if (header) interactive.header = { type: 'text', text: String(header).slice(0, 60) };
+    if (footer) interactive.footer = { text: String(footer).slice(0, 60) };
+    return post(`${phoneNumberId}/messages`, {
+      messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'interactive', interactive,
+    });
+  }
+
   // Marca un mensaje entrante como leído (doble check azul).
   async function markRead(messageId) {
     return post(`${phoneNumberId}/messages`, {
@@ -141,5 +162,5 @@ export function makeCloudClient(tenant, logger = console) {
     return { buffer, mime: meta.mime_type ?? 'application/octet-stream', sha256: meta.sha256 };
   }
 
-  return { phoneNumberId, sendText, sendButtons, markRead, downloadMedia, _post: post };
+  return { phoneNumberId, sendText, sendButtons, sendList, markRead, downloadMedia, _post: post };
 }

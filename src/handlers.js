@@ -5,11 +5,15 @@ import { getActiveMenu } from './active-menu.js';
 import { calcularPedido, construirResumen } from './precios.js';
 import { registrarMensaje, botPausado, escalarAHumano } from './comunicaciones-client.js';
 import { enviarPushEquipo } from './push.js';
+import { manejarTurnoBotones } from './flujo-botones-router.js';
 
 // Sección Comunicaciones (handoff v1). Flag OFF por default → comportamiento idéntico
 // al actual (cero riesgo al deployar). ON cuando el wizard tenga los endpoints + la UI:
 // el bot persiste cada mensaje in/out en la bandeja y respeta la pausa durable.
 const COMUNICACIONES = (process.env.COMUNICACIONES_ENABLED ?? 'false') === 'true';
+// Tier básico: si MODE=buttons, el bot toma pedidos 100% por botones SIN LLM (máquina de estados
+// determinista). Default '' → flujo LLM de prod intacto (aislado, innegociable #1).
+const MODE_BUTTONS = (process.env.MODE ?? '') === 'buttons';
 
 const HISTORY_MAX_TURNS = parseInt(process.env.HISTORY_MAX_TURNS ?? '12', 10);
 const JITTER_MIN = parseInt(process.env.JITTER_MIN_MS ?? '800', 10);
@@ -354,6 +358,19 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   // límite en la ventana, el bot deja de responderle (silencioso) hasta que baje.
   if (!pasaRateLimit(jid, Date.now())) {
     logger.warn({ jid }, '🛑 rate-limit excedido — mensaje ignorado');
+    return;
+  }
+
+  // ── Tier básico (MODE=buttons): ruteo determinista por botones, SIN LLM. Aislado del flujo premium. ──
+  if (MODE_BUTTONS) {
+    if (!estaAbierto(menu)) { await sendBotMessage(sock, jid, { text: mensajeCerrado() }); return; }
+    if (msg.message?.imageMessage) {
+      // Comprobante de transferencia: en v1 lo valida el local a mano (escalamos + ack). [v2: linkear automático]
+      escalarAHumano(jid, 'comprobante-tier-basico').catch(() => {});
+      await sendBotMessage(sock, jid, { text: '¡Recibí tu comprobante! El local lo valida y te confirma 🙂' });
+      return;
+    }
+    await manejarTurnoBotones({ sock, jid, senderName: msg.pushName ?? 'cliente', btnId: msg._btnId ?? null, texto: extractText(msg), logger });
     return;
   }
 

@@ -51,12 +51,13 @@ export function normalizeIncoming(value) {
         },
       });
     } else if (m.type === 'interactive') {
-      // Respuesta a botones interactivos → la tratamos como texto (el id o el título
-      // del botón elegido), para que el flujo conversacional la entienda igual.
+      // Respuesta a botones/listas. Para el flujo LLM la tratamos como texto (título). Para el tier
+      // básico (MODE=buttons) exponemos el ID CRUDO en `_btnId` → ruteo determinista sin LLM.
       const br = m.interactive?.button_reply;
       const lr = m.interactive?.list_reply;
       const texto = br?.title ?? br?.id ?? lr?.title ?? lr?.id ?? '';
-      out.push({ ...base, message: { conversation: texto } });
+      const btnId = br?.id ?? lr?.id ?? null;
+      out.push({ ...base, message: { conversation: texto }, _btnId: btnId });
     } else {
       // audio/video/document/sticker/ubicación: por ahora los tratamos como texto vacío
       // con una nota, para no romper el flujo. (Fase B puede ampliar.)
@@ -76,7 +77,12 @@ export function makeCloudSock(client, logger = console) {
     async sendMessage(jid, payload) {
       const to = jidToPhone(jid);
       let resp;
-      if (payload?.buttons?.length) {
+      if (payload?.sections?.length) {
+        // Mensaje de lista (tier básico).
+        resp = await client.sendList(to, payload.text ?? '', payload.sections, {
+          button: payload.button, header: payload.header, footer: payload.footer,
+        });
+      } else if (payload?.buttons?.length) {
         resp = await client.sendButtons(to, payload.text ?? '', payload.buttons, {
           footer: payload.footer,
           header: payload.header,
