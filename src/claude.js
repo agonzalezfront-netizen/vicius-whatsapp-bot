@@ -2,8 +2,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Agent } from 'undici';
 import { renderMenuForPrompt } from './menu.js';
 import { getActiveMenu, getRepertorio, renderActiveMenuForPrompt, bebidasCliente } from './active-menu.js';
+import { LLM_PROVIDER, resolveModel, callOther } from './llm-provider.js';
 
-const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
+// A/B de modelos (2026-06-27): resolveModel() = ANTHROPIC_MODEL por default (prod intacto); el
+// harness puede setear LLM_PROVIDER=gemini|deepinfra para apuntar a otro proveedor por el adapter.
+const MODEL = resolveModel();
 const TZ = process.env.TZ ?? 'America/Santiago';
 
 // Dispatcher dedicado para Anthropic. Causa raíz del incidente 2026-06-18: desde el
@@ -762,7 +765,10 @@ async function _callLLM(payload) {
   let res, lastErr;
   for (let intento = 1; intento <= 3; intento++) {
     try {
-      res = await client.messages.create(payload);
+      // A/B de modelos: si el provider NO es Anthropic, el adapter normaliza la respuesta al
+      // formato Anthropic-like (content[] + usage) → el resto de la función no cambia. Default
+      // (anthropic) sigue el path original con prompt caching.
+      res = LLM_PROVIDER === 'anthropic' ? await client.messages.create(payload) : await callOther(payload);
       return res;
     } catch (err) {
       lastErr = err;
@@ -866,5 +872,5 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
     if (_tienePedidoConItems(tFix)) texto = tFix; // solo adoptamos si ahora SÍ trae el bloque
   }
 
-  return { texto, usage: usageTotal };
+  return { texto, usage: usageTotal, model: MODEL };
 }

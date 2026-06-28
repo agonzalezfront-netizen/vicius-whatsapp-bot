@@ -28,6 +28,10 @@ export const PRICING = {
   'claude-haiku-4-5':  { in: 1.0,  out: 5.0  },
   'claude-sonnet-4-6': { in: 3.0,  out: 15.0 },
   'claude-opus-4-8':   { in: 15.0, out: 75.0 },
+  // A/B de modelos (2026-06-27) — candidatos baratos:
+  'gemini-2.5-flash-lite': { in: 0.10, out: 0.40 },                                  // Google AI Studio
+  'mistralai/Mistral-Small-3.2-24B-Instruct-2506': { in: 0.05, out: 0.08 },          // DeepInfra
+  'mistralai/mistral-small-3.2-24b-instruct': { in: 0.05, out: 0.10 },               // OpenRouter (aprox)
 };
 
 function priceFor(model) {
@@ -169,9 +173,11 @@ const { getActiveMenu: getActiveMenuLib } = await import('../src/active-menu.js'
 
 export async function runBotTurn({ menu, history, userMessage, sesion = 'nueva', estadoPedido = null, meter }) {
   const generarRespuesta = await getGenerar();
-  const model = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
 
-  const { texto, usage } = await generarRespuesta({ menu, history, userMessage, sesion, estadoPedido });
+  // A/B de modelos: generarRespuesta devuelve el `model` REAL usado (anthropic/gemini/deepinfra) →
+  // el cost-meter cobra con el pricing correcto. Fallback al env por compat.
+  const { texto, usage, model: usedModel } = await generarRespuesta({ menu, history, userMessage, sesion, estadoPedido });
+  const model = usedModel ?? process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
 
   if (meter) {
     meter.record(usage, model);

@@ -17,6 +17,8 @@ import { personaTurn } from './persona.mjs';
 import { CASOS } from './casos.mjs';
 
 const { setActiveMenu } = await import('../src/active-menu.js');
+// A/B de modelos: el label del bot = modelo REAL del provider activo (anthropic/gemini/deepinfra).
+const { LLM_PROVIDER, resolveModel } = await import('../src/llm-provider.js');
 
 // Cada caso puede traer su propio menú activo (caso.menu). Default MENU_PRUEBA.
 // Se aplica ANTES de correr el caso para que el bot vea el menú del día correcto.
@@ -25,7 +27,7 @@ function aplicarMenu(caso) {
 }
 
 const CAP_USD = parseFloat(process.env.CAP_USD ?? '5');
-const BOT_MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-haiku-4-5';
+const BOT_MODEL = resolveModel(); // refleja LLM_PROVIDER (gemini/deepinfra/anthropic)
 // RUNS = veces que se corre CADA caso (para promediar y medir varianza —
 // Haiku/Sonnet son estocásticos, un solo run es ruidoso). Default 1.
 const RUNS = parseInt(process.env.RUNS ?? '1', 10);
@@ -153,6 +155,7 @@ const out = {
   resumen: { corridos, total_pass: totalPass, total_runs: totalRuns, solidos: solidos.length, fluctuantes: fluct.length, rotos: rotos.length },
   costo: meter.summary(), resultados,
 };
-writeFileSync(new URL('./ultimo-reporte.json', import.meta.url), JSON.stringify(out, null, 2));
-console.log(`\n📄 Reporte completo → qa-harness/ultimo-reporte.json`);
+const OUT = process.env.REPORT_OUT ?? './ultimo-reporte.json';
+writeFileSync(new URL(OUT, import.meta.url), JSON.stringify(out, null, 2));
+console.log(`\n📄 Reporte completo → qa-harness/${OUT}`);
 process.exit(rotos.length ? 1 : 0);
