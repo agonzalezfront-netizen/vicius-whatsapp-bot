@@ -66,9 +66,21 @@ function renderAcomp(menu, actual) {
   return { tipo: 'list', text: `Elige un acompañamiento${aviso}. Llevas ${n}.`, button: 'Acompañamientos',
     sections: [{ title: '2 incluidos · extra $2.000', rows }] };
 }
-function botonesAcompMas(n) {
-  return { tipo: 'buttons', text: `Llevas ${n} acompañamiento(s). ¿Agregar otro?`,
-    buttons: [{ id: 'ac_mas', title: '➕ Otro' }, { id: 'ac_listo', title: '✅ Listo' }] };
+// Cupo de acompañamientos INCLUIDOS (gratis) del ítem actual: estándar = 2; especial = su cupo propio.
+function cupoIncluidos(actual, menu) {
+  if (actual?.esEspecial) {
+    const esp = (menu?.platos_especiales ?? []).find((e) => _norm(e.nombre) === _norm(actual.proteina));
+    return Array.isArray(esp?.agregados_incluidos) ? esp.agregados_incluidos.length : 0;
+  }
+  return 2; // menú estándar incluye 2
+}
+// Aviso del costo EN EL PUNTO DE DECISIÓN (mejora QA 2026-06-29): si ya superó el cupo, el próximo paga.
+function botonesAcompMas(n, cupo = 2) {
+  const proxPaga = n >= cupo;
+  const aviso = proxPaga ? ` (el siguiente suma ${clp(2000)})` : '';
+  const tituloOtro = proxPaga ? '➕ Otro +$2.000' : '➕ Otro';
+  return { tipo: 'buttons', text: `Llevas ${n} acompañamiento(s). ¿Agregar otro?${aviso}`,
+    buttons: [{ id: 'ac_mas', title: tituloOtro.slice(0, 20) }, { id: 'ac_listo', title: '✅ Listo' }] };
 }
 function renderBebida(menu) {
   const bs = bebidas(menu);
@@ -243,7 +255,7 @@ export function procesar(estado, input, menu) {
         const ac = acompañamientos(menu);
         const idx = Number(m[1]);
         if (idx >= 0 && idx < ac.length && e.actual.agregados.length < MAX_ACOMP) e.actual.agregados.push(ac[idx]);
-        return { estado: e, salidas: [botonesAcompMas(e.actual.agregados.length)] };
+        return { estado: e, salidas: [botonesAcompMas(e.actual.agregados.length, cupoIncluidos(e.actual, menu))] };
       }
       if (id === 'ac_mas') {
         if (e.actual.agregados.length >= MAX_ACOMP) { e.paso = PASOS.BEBIDA; return { estado: e, salidas: [renderBebida(menu)] }; }
@@ -315,7 +327,7 @@ function cierreTexto(e) {
 function renderPaso(e, menu) {
   switch (e.paso) {
     case PASOS.PROTEINA: return renderProteina(menu);
-    case PASOS.ACOMP: return e.actual.agregados.length ? botonesAcompMas(e.actual.agregados.length) : renderAcomp(menu, e.actual);
+    case PASOS.ACOMP: return e.actual.agregados.length ? botonesAcompMas(e.actual.agregados.length, cupoIncluidos(e.actual, menu)) : renderAcomp(menu, e.actual);
     case PASOS.BEBIDA: return renderBebida(menu);
     case PASOS.EXTRAS: return botonesExtrasAsk();
     case PASOS.MAS_MENUS: return botonesMasMenus();
