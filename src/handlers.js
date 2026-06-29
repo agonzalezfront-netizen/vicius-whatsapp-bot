@@ -365,9 +365,24 @@ export async function handleMessage({ sock, logger, menu, msg }) {
   if (MODE_BUTTONS) {
     if (!estaAbierto(menu)) { await sendBotMessage(sock, jid, { text: mensajeCerrado() }); return; }
     if (msg.message?.imageMessage) {
-      // Comprobante de transferencia: en v1 lo valida el local a mano (escalamos + ack). [v2: linkear automático]
-      escalarAHumano(jid, 'comprobante-tier-basico').catch(() => {});
-      await sendBotMessage(sock, jid, { text: '¡Recibí tu comprobante! El local lo valida y te confirma 🙂' });
+      // Comprobante de transferencia: subirlo al pedido esperando_comprobante del jid → el backend lo
+      // pasa a 'pendiente_validacion' → aparece en el board "Por validar". Reusa la infra del flujo LLM
+      // (sin IA). Antes escalaba sin subir → el pedido transferencia quedaba invisible (BUG3 2026-06-29).
+      try {
+        const pedidoId = await buscarPedidoEsperandoComprobante(jid);
+        if (pedidoId) {
+          const buffer = await sock.downloadImage(msg);
+          await subirComprobante(pedidoId, buffer, msg.message.imageMessage.mimetype ?? 'image/jpeg');
+          await sendBotMessage(sock, jid, { text: '¡Recibí tu comprobante! 🙂 El local lo valida y te confirma enseguida.' });
+        } else {
+          escalarAHumano(jid, 'comprobante-tier-basico').catch(() => {});
+          await sendBotMessage(sock, jid, { text: 'Gracias 🙂. Si es un comprobante de pago, avisanos y lo validamos.' });
+        }
+      } catch (e) {
+        logger.error({ jid, err: e.message }, 'tier básico: subir comprobante FALLA');
+        escalarAHumano(jid, 'comprobante-tier-basico').catch(() => {});
+        await sendBotMessage(sock, jid, { text: '¡Recibí tu comprobante! El local lo valida y te confirma 🙂' });
+      }
       return;
     }
     await manejarTurnoBotones({ sock, jid, senderName: msg.pushName ?? 'cliente', btnId: msg._btnId ?? null, texto: extractText(msg), logger });
