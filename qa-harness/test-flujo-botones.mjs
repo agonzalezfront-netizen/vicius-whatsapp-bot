@@ -79,15 +79,18 @@ console.log('\n=== H) BUG4: el especial avisa el costo del acompañamiento DESDE
 let eH = estadoInicial();
 let rEsp = procesar(eH, { tipo: 'list', id: 'prot:3' }, MENU); // elige Albacora (especial)
 let sEsp = rEsp.salidas[rEsp.salidas.length - 1];
-check(sEsp.text.includes('suma $2.000'), `especial: avisa "suma $2.000" desde "Llevas 0" (got: "${sEsp.text}")`);
+check(sEsp.text.includes('cada uno $2.000'), `especial: regla "cada uno $2.000" desde "Llevas 0" (got: "${sEsp.text}")`);
 check(sEsp.text.includes('Llevas 0'), 'especial: arranca en "Llevas 0"');
 check((sEsp.sections?.[0]?.title || '').includes('Cada uno'), `especial: sección "Cada uno $2.000" (got: "${sEsp.sections?.[0]?.title}")`);
-// Y el estándar NO debe avisar costo en el primero (mantiene "2 incluidos").
+// Estándar: muestra la regla "2 incluidos · extra $2.000 c/u" (la regla ahora se ve siempre en el texto).
 let eStd = estadoInicial();
 let rStd = procesar(eStd, { tipo: 'list', id: 'prot:0' }, MENU); // elige Carne Mechada (estándar)
 let sStd = rStd.salidas[rStd.salidas.length - 1];
-check(!sStd.text.includes('suma'), 'estándar: NO avisa costo en el 1º (2 incluidos)');
+check(sStd.text.includes('2 incluidos') && sStd.text.includes('$2.000'), 'estándar: regla "2 incluidos · extra $2.000 c/u" en el texto');
 check((sStd.sections?.[0]?.title || '').includes('2 incluidos'), 'estándar: sección "2 incluidos · extra $2.000"');
+// AMBOS listan los acompañamientos disponibles en el texto, antes de la lista interactiva.
+check(sStd.text.includes('· Arroz') && sStd.text.includes('· Puré'), 'estándar: lista acompañamientos en el texto (· Arroz, · Puré)');
+check(sEsp.text.includes('· Arroz') && sEsp.text.includes('· Tajadas'), 'especial: lista acompañamientos en el texto');
 
 console.log('\n=== I) UX-B: confirmar dirección — paso intermedio antes de pago ===');
 // Tras escribir la dirección, NO debe ir directo a pago: debe pedir confirmación.
