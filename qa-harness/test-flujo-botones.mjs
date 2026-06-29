@@ -126,6 +126,19 @@ check(m.text.indexOf('Especiales') > m.text.indexOf('Extras'), 'especiales van D
 check(m.text.indexOf('Acompañamientos') < m.text.indexOf('Especiales'), 'acompañamientos antes que especiales');
 check(m.text.lastIndexOf('Armemos tu pedido') > m.text.indexOf('Especiales'), 'el cierre queda al final, tras especiales');
 
+console.log('\n=== K) UX: el paso de EXTRAS lista los extras con precio en el texto ===');
+// Tras elegir bebida, el mensaje de extras debe listar los extras del menú con su precio (antes de decidir).
+let eK = estadoInicial();
+let stK = eK, lastK = null;
+for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0']) {
+  const input = { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('beb:') ? 'list' : 'button', id: s };
+  const rr = procesar(stK, input, MENU); stK = rr.estado; lastK = rr.salidas[rr.salidas.length - 1];
+}
+check(stK.paso === PASOS.EXTRAS, 'tras bebida → paso EXTRAS');
+check(lastK.text.includes('Papas fritas') && lastK.text.includes('$2.000'), 'extras: lista "Papas fritas — $2.000" en el texto');
+check(lastK.text.includes('Quesillo') && lastK.text.includes('$2.500'), 'extras: lista "Quesillo — $2.500" en el texto');
+check((lastK.buttons || []).some((b) => b.id === 'ex_add') && (lastK.buttons || []).some((b) => b.id === 'ex_no'), 'extras: botones Agregar/No seguir intactos');
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (10 escenarios)');
+console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (11 escenarios)');
 process.exit(fails ? 1 : 0);

@@ -92,8 +92,12 @@ function renderBebida(menu) {
   btns.push({ id: 'beb_no', title: 'Sin bebida' });
   return { tipo: 'buttons', text: '¿Qué bebida? (incluida) 🥤', buttons: btns.slice(0, 3) };
 }
-function botonesExtrasAsk() {
-  return { tipo: 'buttons', text: '¿Quieres agregar algún extra pagado?',
+// Muestra los extras con precio EN EL TEXTO (ajuste UX QA 2026-06-29): el cliente ve qué hay y cuánto cuesta
+// antes de decidir, sin tener que tocar "Agregar extra". La lista interactiva al tocar el botón queda igual.
+function botonesExtrasAsk(menu) {
+  const ex = extras(menu);
+  const lista = ex.length ? '\n' + ex.map((e) => `· ${e.nombre} — ${clp(e.precio)}`).join('\n') : '';
+  return { tipo: 'buttons', text: `¿Quieres agregar algún extra pagado?${lista}`,
     buttons: [{ id: 'ex_add', title: '➕ Agregar extra' }, { id: 'ex_no', title: 'No, seguir' }] };
 }
 function renderExtrasList(menu, offset = 0) {
@@ -282,8 +286,8 @@ export function procesar(estado, input, menu) {
     }
     case PASOS.BEBIDA: {
       const m = id.match(/^beb:(\d+)$/);
-      if (m) { e.actual.bebida = bebidas(menu)[Number(m[1])] ?? null; e.paso = PASOS.EXTRAS; return { estado: e, salidas: [botonesExtrasAsk()] }; }
-      if (id === 'beb_no') { e.actual.bebida = null; e.paso = PASOS.EXTRAS; return { estado: e, salidas: [botonesExtrasAsk()] }; }
+      if (m) { e.actual.bebida = bebidas(menu)[Number(m[1])] ?? null; e.paso = PASOS.EXTRAS; return { estado: e, salidas: [botonesExtrasAsk(menu)] }; }
+      if (id === 'beb_no') { e.actual.bebida = null; e.paso = PASOS.EXTRAS; return { estado: e, salidas: [botonesExtrasAsk(menu)] }; }
       return reRender();
     }
     case PASOS.EXTRAS: {
@@ -351,7 +355,7 @@ function renderPaso(e, menu) {
     case PASOS.PROTEINA: return renderProteina(menu);
     case PASOS.ACOMP: return e.actual.agregados.length ? botonesAcompMas(e.actual.agregados.length, cupoIncluidos(e.actual, menu)) : renderAcomp(menu, e.actual);
     case PASOS.BEBIDA: return renderBebida(menu);
-    case PASOS.EXTRAS: return botonesExtrasAsk();
+    case PASOS.EXTRAS: return botonesExtrasAsk(menu);
     case PASOS.MAS_MENUS: return botonesMasMenus();
     case PASOS.MODALIDAD: return botonesModalidad();
     case PASOS.DIRECCION: return { tipo: 'text', text: 'Escríbeme la dirección (calle, número, depto).' };
