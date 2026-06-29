@@ -10,7 +10,7 @@ const MENU = {
     { nombre: 'Pescado Frito', disponible: true },
     { nombre: 'Pulpa al Vino', disponible: true },
   ],
-  platos_especiales: [{ nombre: 'Albacora', precio: 9000, agregados_incluidos: [] }],
+  platos_especiales: [{ nombre: 'Albacora', precio: 9000, agregados_incluidos: [], componentes: [{ nombre: 'Tajadas', reemplazable: true }, { nombre: 'Arroz', reemplazable: true }, { nombre: 'Salsa', reemplazable: false }] }],
   agregados_incluidos: ['Arroz', 'Tajadas', 'Puré', 'Ensalada mixta'],
   extras_pagados: [{ nombre: 'Papas fritas', precio: 2000 }, { nombre: 'Quesillo', precio: 2500 }],
   bebida_incluida: ['Consomé'],
@@ -201,6 +201,41 @@ r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_mas', 'ac:2', 'ac_listo', 'b
 check(r.pedido?.total === 9000, `editar el 3º (pagado) mantiene $9.000 (got ${r.pedido?.total})`);
 check(r.pedido?.items?.[0]?.agregados?.[2] === 'Ensalada mixta', 'el 3er acompañamiento quedó reemplazado');
 
+console.log('\n=== M) Sustitución de componentes del especial componible (pieza 2, caso pabellón) ===');
+// MENU.Albacora tiene componentes: Tajadas* / Arroz* (reemplazables) / Salsa (no). opcionesComponente =
+// acompañamientos [Arroz(0) Tajadas(1) Puré(2) Ensalada mixta(3)] (gratis) + extras [Papas fritas(4,$2.000) Quesillo(5,$2.500)].
+const albacoraResumen = ['prot:3', 'acask_no', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local'];
+// M1: sin cambios → total $9.000 (componentes incluidos, costo 0).
+r = correr([...albacoraResumen, 'conf_si']);
+check(r.pedido?.total === 9000, `especial componible sin cambios = $9.000 (got ${r.pedido?.total})`);
+// M2: cambiar Tajadas (comp 0) por Papas fritas (extra $2.000) → $11.000 (incluido→pagado).
+r = correr([...albacoraResumen, 'conf_editar', 'ep:0', 'ei_comp', 'ecf:0', 'ect:4', 'conf_si']);
+check(r.pedido?.total === 11000, `componente → extra pagado suma $2.000 → $11.000 (got ${r.pedido?.total})`);
+check(r.pedido?.items?.[0]?.componentes?.[0]?.nombre === 'Papas fritas', 'componente 0 reemplazado por Papas fritas');
+check(r.pedido?.items?.[0]?.componentes?.[0]?.costo === 2000, 'componente 0 con costo $2.000');
+// M3: cambiar Tajadas por Puré (acompañamiento del día, gratis) → sigue $9.000 (incluido→incluido).
+r = correr([...albacoraResumen, 'conf_editar', 'ep:0', 'ei_comp', 'ecf:0', 'ect:2', 'conf_si']);
+check(r.pedido?.total === 9000, `componente → acompañamiento del día = gratis → $9.000 (got ${r.pedido?.total})`);
+check(r.pedido?.items?.[0]?.componentes?.[0]?.nombre === 'Puré', 'componente 0 reemplazado por Puré (gratis)');
+// M4: el plato del día (estándar) NO ofrece "cambiar componente".
+let stStd = estadoInicial(); let sEi = null;
+for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_editar', 'ep:0']) {
+  const input = { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('ep:') ? 'list' : 'button', id: s };
+  const rr = procesar(stStd, input, MENU); stStd = rr.estado; sEi = rr.salidas[rr.salidas.length - 1];
+}
+check(!(sEi.sections?.[0]?.rows || []).some((row) => row.id === 'ei_comp'), 'estándar NO ofrece "cambiar componente"');
+// M5: un componente NO reemplazable (Salsa, idx 2) no se puede elegir.
+let stC = estadoInicial();
+for (const s of [...albacoraResumen, 'conf_editar', 'ep:0', 'ei_comp']) {
+  const input = { tipo: s.startsWith('prot') || s.startsWith('ep:') ? 'list' : 'button', id: s };
+  const rr = procesar(stC, input, MENU); stC = rr.estado;
+}
+const rSalsa = procesar(stC, { tipo: 'list', id: 'ecf:2' }, MENU);
+check(rSalsa.estado.paso === PASOS.EDIT_COMP_FROM, 'componente no reemplazable (Salsa) rechazado → sigue en EDIT_COMP_FROM');
+// M6: el resumen lista la composición del especial.
+const resumenTxt = correr(albacoraResumen).last.text;
+check(/viene con: .*Tajadas/.test(resumenTxt), `el resumen muestra "viene con: ...Tajadas" (got: "${resumenTxt.split('\\n').find(l => l.includes('viene con')) || '?'}")`);
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (12 escenarios)');
+console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (13 escenarios)');
 process.exit(fails ? 1 : 0);

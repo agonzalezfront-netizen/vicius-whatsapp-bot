@@ -56,13 +56,20 @@ export function calcularItem(item, menuActivo, fallback) {
     .map((nombre) => ({ nombre, precio: precioExtra(nombre, menuActivo) }));
   const agregadosCost = agregadosPagos.length * EXTRA_DEFAULT;
   const extrasCost = extras.reduce((a, e) => a + e.precio, 0);
-  const subtotal = base + agregadosCost + extrasCost;
+  // Componentes del especial componible (pieza 2): incluidos en el base; un componente sustituido por un
+  // ítem pagado suma su costo (regla incluido→pagado). Retrocompat: sin componentes → [] y costo 0.
+  const componentes = (Array.isArray(item.componentes) ? item.componentes : [])
+    .filter((c) => c && c.nombre)
+    .map((c) => ({ nombre: String(c.nombre), costo: Number(c.costo) || 0, reemplazable: !!c.reemplazable }));
+  const componentesCost = componentes.reduce((a, c) => a + (c.costo || 0), 0);
+  const subtotal = base + agregadosCost + extrasCost + componentesCost;
   return {
     proteina: item.proteina ?? 'ítem',
     esEspecial,
     base,
     agregadosIncluidos,
     agregadosPagos,
+    componentes,
     extras,
     bebida: item.bebida ?? null,
     modificaciones: (item.modificaciones ?? '').trim(),
@@ -86,6 +93,12 @@ export function construirResumen(calc) {
   for (const l of calc.lineas) {
     const desc = l.agregadosIncluidos.length ? ` con ${l.agregadosIncluidos.join(', ')}` : '';
     out += `\n\n• *${l.proteina}*${desc} — ${clp(l.base)}`;
+    // Componentes del especial componible: los incluidos (costo 0) en una línea; los sustituidos por pagado, con su costo.
+    if (l.componentes && l.componentes.length) {
+      const incl = l.componentes.filter((c) => !c.costo).map((c) => c.nombre);
+      if (incl.length) out += `\n   viene con: ${incl.join(', ')}`;
+      for (const c of l.componentes.filter((c) => c.costo)) out += `\n   · ${c.nombre} — ${clp(c.costo)}`;
+    }
     if (l.bebida) out += `\n   · ${String(l.bebida).replace(/\s+natural$/i, '').trim()} (incluido)`;
     for (const a of l.agregadosPagos) out += `\n   · ${a} — ${clp(EXTRA_DEFAULT)}`;
     for (const e of l.extras) out += `\n   · ${e.nombre} — ${clp(e.precio)}`;

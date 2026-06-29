@@ -18,7 +18,8 @@ export const PASOS = Object.freeze({
   CONFIRMA_DIR: 'CONFIRMA_DIR', PAGO: 'PAGO', CONFIRMAR: 'CONFIRMAR',
   // Edición granular del pedido (pieza 2 FASE A): desde el resumen, editar un plato sin re-armarlo.
   EDIT_PICK: 'EDIT_PICK', EDIT_ITEM: 'EDIT_ITEM', EDIT_ACOMP_FROM: 'EDIT_ACOMP_FROM',
-  EDIT_ACOMP_TO: 'EDIT_ACOMP_TO', EDIT_BEBIDA: 'EDIT_BEBIDA', RESET_CONFIRM: 'RESET_CONFIRM',
+  EDIT_ACOMP_TO: 'EDIT_ACOMP_TO', EDIT_BEBIDA: 'EDIT_BEBIDA',
+  EDIT_COMP_FROM: 'EDIT_COMP_FROM', EDIT_COMP_TO: 'EDIT_COMP_TO', RESET_CONFIRM: 'RESET_CONFIRM',
   FIN: 'FIN',
 });
 
@@ -46,9 +47,9 @@ function pagedRows(items, idPrefix, offset = 0, mapRow) {
 
 // ── estado inicial ───────────────────────────────────────────────────────────
 export function estadoInicial() {
-  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0, editIdx: null, editAcompIdx: null };
+  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0, editIdx: null, editAcompIdx: null, editCompIdx: null };
 }
-function nuevoItem() { return { proteina: null, esEspecial: false, agregados: [], bebida: null, extras: [] }; }
+function nuevoItem() { return { proteina: null, esEspecial: false, agregados: [], bebida: null, extras: [], componentes: [] }; }
 
 // ── render por paso (salidas abstractas) ─────────────────────────────────────
 function renderProteina(menu, offset = 0) {
@@ -174,11 +175,34 @@ function renderEditPick(estado, offset = 0) {
 function renderEditItem(estado, menu) {
   const it = estado.items[estado.editIdx];
   const rows = [];
+  if (it && (it.componentes || []).some((c) => c.reemplazable)) rows.push({ id: 'ei_comp', title: '🧩 Cambiar componente' });
   if (it && (it.agregados || []).length) rows.push({ id: 'ei_acomp', title: '🍽 Cambiar acompañamiento' });
   if (bebidas(menu).length) rows.push({ id: 'ei_bebida', title: '🥤 Cambiar bebida' });
   rows.push({ id: 'ei_quitar', title: '🗑 Quitar este plato' });
   rows.push({ id: 'ei_volver', title: '↩ Volver' });
   return { tipo: 'list', text: `Editar: *${nombreItem(it)}*. ¿Qué cambiás?`, button: 'Opciones', sections: [{ title: 'Editar plato', rows }] };
+}
+// Sustitución de COMPONENTES del especial componible (pieza 2). Opciones del día = acompañamientos (gratis)
+// + extras pagados (con su precio). Se reconstruye igual en render y handler → el índice es estable.
+function opcionesComponente(menu) {
+  const acs = acompañamientos(menu).map((n) => ({ nombre: String(n), costo: 0 }));
+  const exs = extras(menu).map((e) => ({ nombre: e.nombre, costo: Number(e.precio) || 0 }));
+  return [...acs, ...exs];
+}
+function renderEditCompFrom(estado) {
+  const it = estado.items[estado.editIdx];
+  const comps = (it.componentes || []);
+  // Solo los reemplazables; el id lleva el índice REAL dentro de it.componentes.
+  const reemplazables = comps.map((c, i) => ({ c, i })).filter((x) => x.c.reemplazable);
+  const rows = rowsConVolver(reemplazables, 'ecf', 0,
+    (x) => ({ id: `ecf:${x.i}`, title: String(x.c.nombre).slice(0, 24) }), 'ecf_volver', '↩ Volver');
+  return { tipo: 'list', text: '¿Qué componente cambiás?', button: 'Componentes', sections: [{ title: 'Reemplazables', rows }] };
+}
+function renderEditCompTo(estado, menu, offset = 0) {
+  const opts = opcionesComponente(menu);
+  const rows = rowsConVolver(opts, 'ect', offset,
+    (o, idx) => ({ id: `ect:${idx}`, title: (o.costo ? `${o.nombre} +${clp(o.costo)}` : o.nombre).slice(0, 24) }), 'ect_volver', '↩ Volver');
+  return { tipo: 'list', text: '¿Por cuál lo cambiás? (los pagados suman su precio)', button: 'Opciones', sections: [{ title: 'Del día', rows }] };
 }
 function renderEditAcompFrom(estado) {
   const it = estado.items[estado.editIdx];
@@ -337,6 +361,14 @@ export function procesar(estado, input, menu) {
       e.actual = nuevoItem();
       e.actual.proteina = todos[idx].nombre;
       e.actual.esEspecial = todos[idx].esp;
+      // Especial COMPONIBLE (pieza 2): materializar sus componentes en el ítem para poder sustituirlos luego.
+      // Retrocompat: especial sin componentes (bloque) → queda [] y se comporta como hoy.
+      if (todos[idx].esp) {
+        const espObj = esp.find((x) => _norm(x.nombre) === _norm(todos[idx].nombre));
+        if (espObj && Array.isArray(espObj.componentes) && espObj.componentes.length) {
+          e.actual.componentes = espObj.componentes.map((c) => ({ nombre: c.nombre, base: c.nombre, reemplazable: !!c.reemplazable, costo: 0 }));
+        }
+      }
       // Especial sin incluidos (cupo 0): acompañamientos opcionales+pagos → PREGUNTAR antes (como extras).
       // Menú del día (cupo>0): los incluidos son parte del plato → ir DIRECTO a elegir.
       if (cupoIncluidos(e.actual, menu) === 0) { e.paso = PASOS.ACOMP_ASK; return { estado: e, salidas: [botonesAcompAsk()] }; }
@@ -432,6 +464,11 @@ export function procesar(estado, input, menu) {
     }
     case PASOS.EDIT_ITEM: {
       if (id === 'ei_volver') { e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [renderResumen(e, menu).salida] }; }
+      if (id === 'ei_comp') {
+        const it = e.items[e.editIdx];
+        if (!it || !(it.componentes || []).some((c) => c.reemplazable)) return { estado: e, salidas: [renderEditItem(e, menu)] };
+        e.paso = PASOS.EDIT_COMP_FROM; return { estado: e, salidas: [renderEditCompFrom(e)] };
+      }
       if (id === 'ei_acomp') {
         const it = e.items[e.editIdx];
         if (!it || !(it.agregados || []).length) return { estado: e, salidas: [renderEditItem(e, menu)] };
@@ -476,6 +513,27 @@ export function procesar(estado, input, menu) {
       }
       return reRender();
     }
+    case PASOS.EDIT_COMP_FROM: {
+      if (id === 'ecf_volver') { e.paso = PASOS.EDIT_ITEM; return { estado: e, salidas: [renderEditItem(e, menu)] }; }
+      const m = id.match(/^ecf:(\d+)$/);
+      if (m) { const idx = Number(m[1]); const it = e.items[e.editIdx]; if (it && it.componentes && it.componentes[idx] && it.componentes[idx].reemplazable) { e.editCompIdx = idx; e.paso = PASOS.EDIT_COMP_TO; return { estado: e, salidas: [renderEditCompTo(e, menu)] }; } }
+      return reRender();
+    }
+    case PASOS.EDIT_COMP_TO: {
+      const mMore = id.match(/^ect:more:(\d+)$/);
+      if (mMore) return { estado: e, salidas: [renderEditCompTo(e, menu, Number(mMore[1]))] };
+      if (id === 'ect_volver') { e.paso = PASOS.EDIT_COMP_FROM; return { estado: e, salidas: [renderEditCompFrom(e)] }; }
+      const m = id.match(/^ect:(\d+)$/);
+      if (m) {
+        const opts = opcionesComponente(menu); const idx = Number(m[1]); const it = e.items[e.editIdx];
+        if (it && opts[idx] && e.editCompIdx != null && it.componentes[e.editCompIdx]) {
+          it.componentes[e.editCompIdx] = { ...it.componentes[e.editCompIdx], nombre: opts[idx].nombre, costo: opts[idx].costo }; // incluido→incluido gratis; →pagado suma
+        }
+        e.editCompIdx = null; e.paso = PASOS.CONFIRMAR;
+        return { estado: e, salidas: [{ tipo: 'text', text: 'Listo, cambié el componente.' }, renderResumen(e, menu).salida] };
+      }
+      return reRender();
+    }
     case PASOS.FIN:
     default:
       return reRender();
@@ -508,6 +566,8 @@ function renderPaso(e, menu) {
     case PASOS.EDIT_ACOMP_FROM: return renderEditAcompFrom(e);
     case PASOS.EDIT_ACOMP_TO: return renderEditAcompTo(e, menu);
     case PASOS.EDIT_BEBIDA: return renderBebida(menu);
+    case PASOS.EDIT_COMP_FROM: return renderEditCompFrom(e);
+    case PASOS.EDIT_COMP_TO: return renderEditCompTo(e, menu);
     default: return { tipo: 'text', text: '🙂' };
   }
 }
