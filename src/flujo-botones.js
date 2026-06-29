@@ -63,12 +63,16 @@ function renderAcomp(menu, actual) {
   const n = actual.agregados.length;
   const cupo = cupoIncluidos(actual, menu); // estándar=2, especial=su cupo (Pabellón=0 → todos pagan)
   const rows = pagedRows(ac, 'ac', 0, (nombre, idx) => ({ id: `ac:${idx}`, title: String(nombre).slice(0, 24) }));
-  // Regla de precio EN EL TEXTO, siempre visible (ajuste UX QA 2026-06-29 — "no elegir a ciegas"):
-  // estándar = "N incluidos · extra $2.000 c/u"; especial (cupo 0) = "cada uno $2.000" (fix BUG4: el especial
-  // avisa el costo desde el 1º). Listamos además las opciones en el texto, antes de la lista interactiva.
-  const regla = cupo > 0 ? `${cupo} incluidos · extra ${clp(2000)} c/u` : `cada uno ${clp(2000)}`;
+  // Regla de precio dinámica EN EL TEXTO (ajuste UX QA 2026-06-29): el "+$2.000" SOLO aparece cuando ya no
+  // quedan incluidos gratis (n >= cupo). Mientras haya gratis → mostrar cuántos quedan, SIN mencionar el costo
+  // (evita que el cliente crea que ya le cobran). Especial (cupo 0): no hay gratis → "cada uno $2.000" desde
+  // el inicio (fix BUG4 intacto). Listamos las opciones en el texto, antes de la lista interactiva.
+  let regla;
+  if (cupo === 0) regla = `cada uno ${clp(2000)}`;
+  else if (n >= cupo) regla = `el siguiente suma ${clp(2000)}`;
+  else { const restan = cupo - n; regla = `te queda${restan === 1 ? '' : 'n'} ${restan} gratis`; }
   const lista = ac.length ? '\n' + ac.map((nombre) => `· ${nombre}`).join('\n') : '';
-  const titulo = cupo > 0 ? `${cupo} incluidos · extra ${clp(2000)}` : `Cada uno ${clp(2000)}`;
+  const titulo = cupo > 0 ? `${cupo} incluidos gratis` : `Cada uno ${clp(2000)}`;
   return { tipo: 'list', text: `Elige un acompañamiento (${regla}). Llevas ${n}.${lista}`, button: 'Acompañamientos',
     sections: [{ title: titulo, rows }] };
 }

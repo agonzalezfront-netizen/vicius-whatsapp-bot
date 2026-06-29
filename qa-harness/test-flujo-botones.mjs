@@ -82,15 +82,23 @@ let sEsp = rEsp.salidas[rEsp.salidas.length - 1];
 check(sEsp.text.includes('cada uno $2.000'), `especial: regla "cada uno $2.000" desde "Llevas 0" (got: "${sEsp.text}")`);
 check(sEsp.text.includes('Llevas 0'), 'especial: arranca en "Llevas 0"');
 check((sEsp.sections?.[0]?.title || '').includes('Cada uno'), `especial: sección "Cada uno $2.000" (got: "${sEsp.sections?.[0]?.title}")`);
-// Estándar: muestra la regla "2 incluidos · extra $2.000 c/u" (la regla ahora se ve siempre en el texto).
+// Estándar llevas 0: muestra los incluidos gratis, SIN mencionar el costo del extra (ajuste QA: no asustar).
 let eStd = estadoInicial();
 let rStd = procesar(eStd, { tipo: 'list', id: 'prot:0' }, MENU); // elige Carne Mechada (estándar)
 let sStd = rStd.salidas[rStd.salidas.length - 1];
-check(sStd.text.includes('2 incluidos') && sStd.text.includes('$2.000'), 'estándar: regla "2 incluidos · extra $2.000 c/u" en el texto');
-check((sStd.sections?.[0]?.title || '').includes('2 incluidos'), 'estándar: sección "2 incluidos · extra $2.000"');
+check(sStd.text.includes('te quedan 2 gratis'), `estándar llevas 0: "te quedan 2 gratis" (got: "${sStd.text.split('\\n')[0]}")`);
+check(!sStd.text.includes('$2.000'), 'estándar llevas 0: NO menciona $2.000 (hay incluidos disponibles)');
+check((sStd.sections?.[0]?.title || '').includes('2 incluidos'), 'estándar: sección "2 incluidos gratis"');
 // AMBOS listan los acompañamientos disponibles en el texto, antes de la lista interactiva.
 check(sStd.text.includes('· Arroz') && sStd.text.includes('· Puré'), 'estándar: lista acompañamientos en el texto (· Arroz, · Puré)');
 check(sEsp.text.includes('· Arroz') && sEsp.text.includes('· Tajadas'), 'especial: lista acompañamientos en el texto');
+// Estándar al SUPERAR el cupo (llevas 2): recién ahí aparece el costo del siguiente.
+let stCupo = estadoInicial();
+for (const s of ['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_mas']) {
+  const input = { tipo: s.startsWith('prot') || s.startsWith('ac:') ? 'list' : 'button', id: s };
+  const rr = procesar(stCupo, input, MENU); stCupo = rr.estado; if (s === 'ac_mas') var sCupo = rr.salidas[rr.salidas.length - 1];
+}
+check(sCupo.text.includes('Llevas 2') && sCupo.text.includes('$2.000'), `estándar llevas 2: "el siguiente suma $2.000" (got: "${sCupo.text.split('\\n')[0]}")`);
 
 console.log('\n=== I) UX-B: confirmar dirección — paso intermedio antes de pago ===');
 // Tras escribir la dirección, NO debe ir directo a pago: debe pedir confirmación.
