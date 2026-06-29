@@ -13,7 +13,7 @@
 import { calcularPedido, construirResumen } from './precios.js';
 
 export const PASOS = Object.freeze({
-  PROTEINA: 'PROTEINA', ACOMP: 'ACOMP', BEBIDA: 'BEBIDA', EXTRAS: 'EXTRAS',
+  PROTEINA: 'PROTEINA', ACOMP_ASK: 'ACOMP_ASK', ACOMP: 'ACOMP', BEBIDA: 'BEBIDA', EXTRAS: 'EXTRAS',
   MAS_MENUS: 'MAS_MENUS', MODALIDAD: 'MODALIDAD', DIRECCION: 'DIRECCION',
   CONFIRMA_DIR: 'CONFIRMA_DIR', PAGO: 'PAGO', CONFIRMAR: 'CONFIRMAR', FIN: 'FIN',
 });
@@ -91,6 +91,12 @@ function botonesAcompMas(n, cupo = 2) {
   const tituloOtro = proxPaga ? '➕ Otro +$2.000' : '➕ Otro';
   return { tipo: 'buttons', text: `Llevas ${n} acompañamiento(s). ¿Agregar otro?${aviso}`,
     buttons: [{ id: 'ac_mas', title: tituloOtro.slice(0, 20) }, { id: 'ac_listo', title: '✅ Listo' }] };
+}
+// Pregunta opcional (ajuste UX QA 2026-06-29): SOLO para especiales (cupo 0). Sus acompañamientos son
+// opcionales y pagos (el plato viene preparado) → preguntar antes de forzar la lista, como con los extras.
+function botonesAcompAsk() {
+  return { tipo: 'buttons', text: `¿Querés agregar acompañamientos? (cada uno ${clp(2000)})`,
+    buttons: [{ id: 'acask_si', title: '✅ Sí, agregar' }, { id: 'acask_no', title: 'No, seguir' }] };
 }
 function renderBebida(menu) {
   const bs = bebidas(menu);
@@ -183,6 +189,12 @@ export function matchTexto(paso, texto, menu) {
       const i = _idxEnLista(texto, todos);
       return i >= 0 ? `prot:${i}` : null;
     }
+    case PASOS.ACOMP_ASK: {
+      // Orden: chequear NO primero ("sin" contiene "si") para no confundir.
+      if (_algunaPalabra(t, ['no', 'seguir', 'sin', 'nada', 'asi esta', 'así esta', 'listo', 'continuar', 'paso'])) return 'acask_no';
+      if (_algunaPalabra(t, ['si', 'sí', 'agregar', 'dale', 'quiero', 'ok', 'bueno', 'sumar', 'agrega'])) return 'acask_si';
+      return null;
+    }
     case PASOS.ACOMP: {
       if (_algunaPalabra(t, ['listo', 'nada mas', 'nada más', 'ya esta', 'eso es todo', 'asi esta'])) return 'ac_listo';
       if (_algunaPalabra(t, ['otro', 'agregar', 'mas', 'más', 'sumar'])) return 'ac_mas';
@@ -272,8 +284,16 @@ export function procesar(estado, input, menu) {
       e.actual = nuevoItem();
       e.actual.proteina = todos[idx].nombre;
       e.actual.esEspecial = todos[idx].esp;
+      // Especial sin incluidos (cupo 0): acompañamientos opcionales+pagos → PREGUNTAR antes (como extras).
+      // Menú del día (cupo>0): los incluidos son parte del plato → ir DIRECTO a elegir.
+      if (cupoIncluidos(e.actual, menu) === 0) { e.paso = PASOS.ACOMP_ASK; return { estado: e, salidas: [botonesAcompAsk()] }; }
       e.paso = PASOS.ACOMP;
       return { estado: e, salidas: [renderAcomp(menu, e.actual)] };
+    }
+    case PASOS.ACOMP_ASK: {
+      if (id === 'acask_si') { e.paso = PASOS.ACOMP; return { estado: e, salidas: [renderAcomp(menu, e.actual)] }; }
+      if (id === 'acask_no') { e.paso = PASOS.BEBIDA; return { estado: e, salidas: [renderBebida(menu)] }; }
+      return reRender();
     }
     case PASOS.ACOMP: {
       const m = id.match(/^ac:(\d+)$/);
@@ -359,6 +379,7 @@ function cierreTexto(e) {
 function renderPaso(e, menu) {
   switch (e.paso) {
     case PASOS.PROTEINA: return renderProteina(menu);
+    case PASOS.ACOMP_ASK: return botonesAcompAsk();
     case PASOS.ACOMP: return e.actual.agregados.length ? botonesAcompMas(e.actual.agregados.length, cupoIncluidos(e.actual, menu)) : renderAcomp(menu, e.actual);
     case PASOS.BEBIDA: return renderBebida(menu);
     case PASOS.EXTRAS: return botonesExtrasAsk(menu);

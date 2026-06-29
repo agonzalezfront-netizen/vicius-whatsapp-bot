@@ -45,9 +45,14 @@ r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_mas', 'ac:2', 'ac_listo', 'b
 check(r.pedido?.total === 9000, `total = $9.000 (got ${r.pedido?.total})`);
 
 console.log('\n=== C) Especial (Albacora $9.000) + 1 acompañamiento ($2.000, sin cupo gratis) → $11.000 ===');
-r = correr(['prot:3', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_si']);
+// El especial ahora PREGUNTA antes (acask_si) → luego elige acompañamiento.
+r = correr(['prot:3', 'acask_si', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_si']);
 check(r.pedido?.items?.[0]?.proteina === 'Albacora', 'proteína = Albacora');
 check(r.pedido?.total === 11000, `total = $11.000 (9000 + 2000 acompañamiento) (got ${r.pedido?.total})`);
+// Especial diciendo "No, seguir" → sin acompañamientos → $9.000.
+let rSinAcomp = correr(['prot:3', 'acask_no', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_si']);
+check(rSinAcomp.pedido?.total === 9000, `especial sin acompañamientos = $9.000 (got ${rSinAcomp.pedido?.total})`);
+check((rSinAcomp.pedido?.items?.[0]?.agregados?.length ?? 0) === 0, 'especial "No, seguir": 0 acompañamientos');
 
 console.log('\n=== D) Extra (Papas $2.000) → $9.000 ===');
 r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_add', 'ex:0', 'ex_listo', 'mm_seguir', 'mod_local', 'pay_local', 'conf_si']);
@@ -77,15 +82,27 @@ console.log('\n=== H) BUG4: el especial avisa el costo del acompañamiento DESDE
 // Al elegir el especial (prot:3) el render de acompañamientos debe avisar que cada uno suma $2.000
 // (NO debe tratarse como "2 incluidos gratis" del menú del día).
 let eH = estadoInicial();
-let rEsp = procesar(eH, { tipo: 'list', id: 'prot:3' }, MENU); // elige Albacora (especial)
+// El especial PREGUNTA primero (ajuste QA): paso ACOMP_ASK con botones Sí/No.
+let rAsk = procesar(eH, { tipo: 'list', id: 'prot:3' }, MENU); // elige Albacora (especial)
+let sAsk = rAsk.salidas[rAsk.salidas.length - 1];
+check(rAsk.estado.paso === PASOS.ACOMP_ASK, 'especial → paso ACOMP_ASK (pregunta antes de la lista)');
+check((sAsk.buttons || []).some((b) => b.id === 'acask_si') && (sAsk.buttons || []).some((b) => b.id === 'acask_no'), 'especial: botones Sí/No agregar acompañamientos');
+check(sAsk.text.includes('cada uno $2.000'), 'especial: la pregunta avisa "cada uno $2.000"');
+// "No, seguir" → salta a BEBIDA (sin forzar acompañamientos). (clono: procesar muta el estado)
+let rNo = procesar(structuredClone(rAsk.estado), { tipo: 'button', id: 'acask_no' }, MENU);
+check(rNo.estado.paso === PASOS.BEBIDA, 'especial "No, seguir" → salta a BEBIDA');
+// "Sí, agregar" → recién ahí la lista con "cada uno $2.000".
+let rEsp = procesar(structuredClone(rAsk.estado), { tipo: 'button', id: 'acask_si' }, MENU);
 let sEsp = rEsp.salidas[rEsp.salidas.length - 1];
-check(sEsp.text.includes('cada uno $2.000'), `especial: regla "cada uno $2.000" desde "Llevas 0" (got: "${sEsp.text}")`);
+check(rEsp.estado.paso === PASOS.ACOMP, 'especial "Sí, agregar" → paso ACOMP');
+check(sEsp.text.includes('cada uno $2.000'), `especial tras Sí: regla "cada uno $2.000" (got: "${sEsp.text.split('\\n')[0]}")`);
 check(sEsp.text.includes('Llevas 0'), 'especial: arranca en "Llevas 0"');
 check((sEsp.sections?.[0]?.title || '').includes('Cada uno'), `especial: sección "Cada uno $2.000" (got: "${sEsp.sections?.[0]?.title}")`);
 // Estándar llevas 0: muestra los incluidos gratis, SIN mencionar el costo del extra (ajuste QA: no asustar).
 let eStd = estadoInicial();
 let rStd = procesar(eStd, { tipo: 'list', id: 'prot:0' }, MENU); // elige Carne Mechada (estándar)
 let sStd = rStd.salidas[rStd.salidas.length - 1];
+check(rStd.estado.paso === PASOS.ACOMP, 'estándar → directo a ACOMP (sin preguntar, los incluidos son parte del plato)');
 check(sStd.text.includes('te quedan 2 gratis'), `estándar llevas 0: "te quedan 2 gratis" (got: "${sStd.text.split('\\n')[0]}")`);
 check(!sStd.text.includes('$2.000'), 'estándar llevas 0: NO menciona $2.000 (hay incluidos disponibles)');
 check((sStd.sections?.[0]?.title || '').includes('2 incluidos'), 'estándar: sección "2 incluidos gratis"');
