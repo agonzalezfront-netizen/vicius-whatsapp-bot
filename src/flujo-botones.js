@@ -42,7 +42,7 @@ function pagedRows(items, idPrefix, offset = 0, mapRow) {
 
 // ── estado inicial ───────────────────────────────────────────────────────────
 export function estadoInicial() {
-  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null };
+  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0 };
 }
 function nuevoItem() { return { proteina: null, esEspecial: false, agregados: [], bebida: null, extras: [] }; }
 
@@ -123,13 +123,101 @@ function armarPedido(estado, menu) {
   };
 }
 
+// ── MATCH DE TEXTO (mejora 2026-06-28): el cliente puede ESCRIBIR el nombre en vez de tocar ──
+// Sin IA: normaliza (minúsculas, sin tildes) y matchea el texto contra las opciones del paso actual.
+// Devuelve el id equivalente (como si hubiera tocado) o null si no reconoce.
+const _norm = (s) => String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+function _matchNombre(texto, nombre) {
+  const t = _norm(texto), n = _norm(nombre);
+  if (!t || !n) return false;
+  return t === n || t.includes(n) || n.includes(t);
+}
+// Busca el texto en una lista de nombres → índice o -1.
+function _idxEnLista(texto, nombres) {
+  return (nombres ?? []).findIndex((n) => _matchNombre(texto, n));
+}
+function _algunaPalabra(texto, palabras) {
+  const t = _norm(texto);
+  return palabras.some((p) => t.includes(p));
+}
+
+export function matchTexto(paso, texto, menu) {
+  const t = _norm(texto);
+  if (!t) return null;
+  switch (paso) {
+    case PASOS.PROTEINA: {
+      const todos = [...proteinasDisponibles(menu).map((p) => p.nombre), ...especiales(menu).map((e) => e.nombre)];
+      const i = _idxEnLista(texto, todos);
+      return i >= 0 ? `prot:${i}` : null;
+    }
+    case PASOS.ACOMP: {
+      if (_algunaPalabra(t, ['listo', 'nada mas', 'nada más', 'ya esta', 'eso es todo', 'asi esta'])) return 'ac_listo';
+      if (_algunaPalabra(t, ['otro', 'agregar', 'mas', 'más', 'sumar'])) return 'ac_mas';
+      const i = _idxEnLista(texto, acompañamientos(menu));
+      return i >= 0 ? `ac:${i}` : null;
+    }
+    case PASOS.BEBIDA: {
+      if (_algunaPalabra(t, ['sin', 'no quiero', 'ninguna', 'nada'])) return 'beb_no';
+      const i = _idxEnLista(texto, bebidas(menu));
+      return i >= 0 ? `beb:${i}` : null;
+    }
+    case PASOS.EXTRAS: {
+      const i = _idxEnLista(texto, extras(menu).map((e) => e.nombre));
+      if (i >= 0) return `ex:${i}`;
+      if (_algunaPalabra(t, ['listo', 'ninguno', 'no', 'nada', 'seguir', 'eso es todo'])) return 'ex_no';
+      if (_algunaPalabra(t, ['otro', 'agregar', 'mas', 'más', 'si', 'sí', 'quiero'])) return 'ex_add';
+      return null;
+    }
+    case PASOS.MAS_MENUS: {
+      if (_algunaPalabra(t, ['otro', 'agregar', 'mas', 'más', 'si', 'sí', 'sumar'])) return 'mm_otro';
+      if (_algunaPalabra(t, ['seguir', 'no', 'listo', 'eso es todo', 'nada mas', 'continuar'])) return 'mm_seguir';
+      return null;
+    }
+    case PASOS.MODALIDAD: {
+      if (_algunaPalabra(t, ['delivery', 'despacho', 'envio', 'envío', 'domicilio', 'reparto'])) return 'mod_delivery';
+      if (_algunaPalabra(t, ['retiro', 'local', 'buscar', 'paso a', 'paso', 'retirar'])) return 'mod_local';
+      return null;
+    }
+    case PASOS.PAGO: {
+      if (_algunaPalabra(t, ['transfer', 'transferencia', 'deposito', 'depósito'])) return 'pay_transfer';
+      if (_algunaPalabra(t, ['local', 'al retirar', 'retiro'])) return 'pay_local';
+      if (_algunaPalabra(t, ['efectivo', 'cash', 'plata', 'al recibir'])) return 'pay_efectivo';
+      return null;
+    }
+    case PASOS.CONFIRMAR: {
+      if (_algunaPalabra(t, ['si', 'sí', 'confirmo', 'confirmar', 'dale', 'ok', 'listo', 'correcto'])) return 'conf_si';
+      if (_algunaPalabra(t, ['no', 'reiniciar', 'cambiar', 'empezar', 'mal'])) return 'conf_reset';
+      return null;
+    }
+    default:
+      return null;
+  }
+}
+function hintNoEntendi() {
+  return { tipo: 'text', text: 'No te entendí 🙂. Tocá una opción del menú o escribí su nombre.' };
+}
+
 // ── núcleo: una transición ───────────────────────────────────────────────────
 // Idempotente (innegociable #3): un input cuyo id no corresponde al paso actual se IGNORA
 // (devuelve re-render del paso actual, sin avanzar).
 export function procesar(estado, input, menu) {
   const e = estado ?? estadoInicial();
-  const id = input?.id ?? '';
   const texto = (input?.texto ?? '').trim();
+
+  // Mejora (2026-06-28): si el cliente ESCRIBIÓ (texto, no tocó) en un paso de selección, intentamos
+  // resolver el texto a una opción del paso. Si no se reconoce: re-render con hint; al 2º fallo seguido
+  // → escalar a humano (flag para el router). DIRECCION usa el texto tal cual; FIN no aplica.
+  let id = input?.id ?? '';
+  if (input?.tipo === 'text' && texto && e.paso !== PASOS.DIRECCION && e.paso !== PASOS.FIN) {
+    const resuelto = matchTexto(e.paso, texto, menu);
+    if (resuelto) { id = resuelto; e.intentos = 0; }
+    else {
+      e.intentos = (e.intentos || 0) + 1;
+      const escalar = e.intentos >= 2;
+      if (escalar) e.intentos = 0;
+      return { estado: e, salidas: [hintNoEntendi(), renderPaso(e, menu)], ...(escalar ? { escalar: true } : {}) };
+    }
+  }
   const reRender = (extra) => ({ estado: e, salidas: [renderPaso(e, menu)], ...(extra || {}) });
 
   switch (e.paso) {

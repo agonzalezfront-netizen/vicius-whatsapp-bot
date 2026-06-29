@@ -54,20 +54,15 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
     return;
   }
 
-  // Texto libre en un paso que NO lo espera (solo DIRECCION lo espera) = DUDA → escalar a humano,
-  // y re-mostrar el paso actual (no rompe el flujo). En el básico la IA no entra; la atiende el local.
-  const esTexto = !btnId && !!(texto && texto.trim());
-  if (esTexto && estado.paso !== PASOS.DIRECCION) {
-    escalarAHumano(jid, 'consulta-tier-basico').catch(() => {});
-    await sock.sendMessage(jid, { text: 'Para esa consulta te conecto con el local 🙂. Mientras, podés seguir tu pedido tocando los botones 👇' });
-    const rr = procesar(estado, { tipo: 'noop' }, menu); // re-render del paso actual
-    await enviar(sock, jid, rr.salidas);
-    return;
-  }
-
+  // La máquina maneja botón Y texto (intenta resolver el texto a una opción del paso; ver matchTexto).
   const input = btnId ? { tipo: 'button', id: btnId } : { tipo: 'text', texto };
   const r = procesar(estado, input, menu);
   await setEstadoFlujo(jid, r.estado);
   await enviar(sock, jid, r.salidas);
+  // Si el cliente escribió algo no reconocido 2 veces seguidas → la máquina pide escalar (duda).
+  if (r.escalar) {
+    escalarAHumano(jid, 'consulta-tier-basico').catch(() => {});
+    await sock.sendMessage(jid, { text: 'Si tenés una consulta, te conecto con el local 🙂. Para seguir tu pedido, tocá una opción o escribí su nombre 👇' });
+  }
   if (r.pedido) await finalizar(jid, senderName, r.pedido, logger);
 }
