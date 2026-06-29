@@ -167,6 +167,40 @@ check(lastK.text.includes('Papas fritas') && lastK.text.includes('$2.000'), 'ext
 check(lastK.text.includes('Quesillo') && lastK.text.includes('$2.500'), 'extras: lista "Quesillo — $2.500" en el texto');
 check((lastK.buttons || []).some((b) => b.id === 'ex_add') && (lastK.buttons || []).some((b) => b.id === 'ex_no'), 'extras: botones Agregar/No seguir intactos');
 
+console.log('\n=== L) Editar pedido (pieza 2 FASE A) ===');
+// Pedido estándar con 2 acompañamientos (Arroz, Tajadas) + Consomé, retiro local → hasta el resumen.
+const hastaResumen = ['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local'];
+// L1: editar acompañamiento Arroz→Puré (ambos incluidos) → total sigue $7.000, agregado cambiado.
+r = correr([...hastaResumen, 'conf_editar', 'ep:0', 'ei_acomp', 'eaf:0', 'eat:2', 'conf_si']);
+check(r.pedido?.items?.[0]?.agregados?.[0] === 'Puré', `acompañamiento cambiado a Puré (got ${r.pedido?.items?.[0]?.agregados?.[0]})`);
+check(r.pedido?.items?.[0]?.agregados?.[1] === 'Tajadas', 'el otro acompañamiento intacto (Tajadas)');
+check(r.pedido?.total === 7000, `total sigue $7.000 (incluido→incluido gratis) (got ${r.pedido?.total})`);
+// L2: cambiar bebida → quitar la bebida (beb_no).
+r = correr([...hastaResumen, 'conf_editar', 'ep:0', 'ei_bebida', 'beb_no', 'conf_si']);
+check(r.pedido?.items?.[0]?.bebida === null, 'bebida cambiada a (sin bebida)');
+// L3: quitar plato con 2 platos → queda 1.
+const dosPlatos = ['prot:0', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_otro', 'prot:1', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local'];
+r = correr([...dosPlatos, 'conf_editar', 'ep:0', 'ei_quitar', 'conf_si']);
+check(r.pedido?.items?.length === 1, `quitar 1 de 2 platos → queda 1 (got ${r.pedido?.items?.length})`);
+// L4: quitar el ÚLTIMO plato → pedido vacío → vuelve a PROTEINA (sin emitir pedido).
+let stL = estadoInicial();
+for (const s of [...hastaResumen, 'conf_editar', 'ep:0', 'ei_quitar']) {
+  const input = typeof s === 'string' ? { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('ep:') ? 'list' : 'button', id: s } : s;
+  const rr = procesar(stL, input, MENU); stL = rr.estado;
+}
+check(stL.paso === PASOS.PROTEINA, `quitar el último plato → vuelve a PROTEINA (got ${stL.paso})`);
+// L5: "empezar de nuevo" pide confirmación; "No" vuelve al resumen, "Sí" reinicia.
+let stR = estadoInicial();
+for (const s of hastaResumen) { const rr = procesar(stR, { tipo: 'button', id: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('beb:') ? 'list' : 'button', id: s }, MENU); stR = rr.estado; }
+let rReset = procesar(stR, { tipo: 'button', id: 'conf_reset' }, MENU);
+check(rReset.estado.paso === PASOS.RESET_CONFIRM, 'conf_reset → pide confirmación (RESET_CONFIRM)');
+check(procesar(structuredClone(rReset.estado), { tipo: 'button', id: 'reset_no' }, MENU).estado.paso === PASOS.CONFIRMAR, '"No, volver" → vuelve al resumen');
+check(procesar(structuredClone(rReset.estado), { tipo: 'button', id: 'reset_si' }, MENU).estado.paso === PASOS.PROTEINA, '"Sí, de nuevo" → reinicia (PROTEINA)');
+// L6: editar el 3er acompañamiento (pagado) → total se mantiene $9.000 (recálculo coherente por posición).
+r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_mas', 'ac:2', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_editar', 'ep:0', 'ei_acomp', 'eaf:2', 'eat:3', 'conf_si']);
+check(r.pedido?.total === 9000, `editar el 3º (pagado) mantiene $9.000 (got ${r.pedido?.total})`);
+check(r.pedido?.items?.[0]?.agregados?.[2] === 'Ensalada mixta', 'el 3er acompañamiento quedó reemplazado');
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (11 escenarios)');
+console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (12 escenarios)');
 process.exit(fails ? 1 : 0);

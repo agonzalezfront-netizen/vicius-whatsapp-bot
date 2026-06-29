@@ -15,7 +15,11 @@ import { calcularPedido, construirResumen } from './precios.js';
 export const PASOS = Object.freeze({
   PROTEINA: 'PROTEINA', ACOMP_ASK: 'ACOMP_ASK', ACOMP: 'ACOMP', BEBIDA: 'BEBIDA', EXTRAS: 'EXTRAS',
   MAS_MENUS: 'MAS_MENUS', MODALIDAD: 'MODALIDAD', DIRECCION: 'DIRECCION',
-  CONFIRMA_DIR: 'CONFIRMA_DIR', PAGO: 'PAGO', CONFIRMAR: 'CONFIRMAR', FIN: 'FIN',
+  CONFIRMA_DIR: 'CONFIRMA_DIR', PAGO: 'PAGO', CONFIRMAR: 'CONFIRMAR',
+  // Edición granular del pedido (pieza 2 FASE A): desde el resumen, editar un plato sin re-armarlo.
+  EDIT_PICK: 'EDIT_PICK', EDIT_ITEM: 'EDIT_ITEM', EDIT_ACOMP_FROM: 'EDIT_ACOMP_FROM',
+  EDIT_ACOMP_TO: 'EDIT_ACOMP_TO', EDIT_BEBIDA: 'EDIT_BEBIDA', RESET_CONFIRM: 'RESET_CONFIRM',
+  FIN: 'FIN',
 });
 
 const MAX_ROWS = 10;     // límite de filas por list message (WhatsApp)
@@ -42,7 +46,7 @@ function pagedRows(items, idPrefix, offset = 0, mapRow) {
 
 // ── estado inicial ───────────────────────────────────────────────────────────
 export function estadoInicial() {
-  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0 };
+  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0, editIdx: null, editAcompIdx: null };
 }
 function nuevoItem() { return { proteina: null, esEspecial: false, agregados: [], bebida: null, extras: [] }; }
 
@@ -145,7 +149,56 @@ function renderResumen(estado, menu) {
   const calc = calcularPedido(estado.items, estado.tipo, menu, null);
   const txt = construirResumen(calc) + (estado.tipo === 'delivery' && estado.direccion ? `\n\n🛵 ${estado.direccion}` : '');
   return { calc, salida: { tipo: 'buttons', text: txt + '\n\n¿Confirmamos?',
-    buttons: [{ id: 'conf_si', title: '✅ Confirmar' }, { id: 'conf_reset', title: '✏️ Reiniciar' }] } };
+    buttons: [{ id: 'conf_si', title: '✅ Confirmar' }, { id: 'conf_editar', title: '✏️ Editar' }, { id: 'conf_reset', title: '🔄 Empezar de nuevo' }] } };
+}
+
+// ── edición granular (pieza 2 FASE A): editar un plato del pedido sin re-armarlo ────────────────
+// Filas paginadas + una fila final "↩ Volver" (respeta el tope de 10 filas de WhatsApp, gap 2 §6).
+function rowsConVolver(items, prefix, offset, mapRow, volverId, volverTitle) {
+  const cap = items.length > 9 ? 8 : 9; // 1 fila reservada para Volver (+1 para "Ver más" si pagina)
+  const page = items.slice(offset, offset + cap);
+  const rows = page.map((it, i) => mapRow(it, offset + i));
+  if (offset + cap < items.length) rows.push({ id: `${prefix}:more:${offset + cap}`, title: '▶ Ver más' });
+  rows.push({ id: volverId, title: volverTitle });
+  return rows;
+}
+const nombreItem = (it) => it?.proteina || 'Plato';
+function renderEditPick(estado, offset = 0) {
+  const rows = rowsConVolver(estado.items, 'ep', offset,
+    (it, idx) => {
+      const det = [...(it.agregados || []), it.bebida].filter(Boolean).join(', ');
+      return { id: `ep:${idx}`, title: nombreItem(it).slice(0, 24), ...(det ? { description: det.slice(0, 72) } : {}) };
+    }, 'ep_volver', '↩ Volver');
+  return { tipo: 'list', text: '¿Qué plato querés editar?', button: 'Editar plato', sections: [{ title: 'Tus platos', rows }] };
+}
+function renderEditItem(estado, menu) {
+  const it = estado.items[estado.editIdx];
+  const rows = [];
+  if (it && (it.agregados || []).length) rows.push({ id: 'ei_acomp', title: '🍽 Cambiar acompañamiento' });
+  if (bebidas(menu).length) rows.push({ id: 'ei_bebida', title: '🥤 Cambiar bebida' });
+  rows.push({ id: 'ei_quitar', title: '🗑 Quitar este plato' });
+  rows.push({ id: 'ei_volver', title: '↩ Volver' });
+  return { tipo: 'list', text: `Editar: *${nombreItem(it)}*. ¿Qué cambiás?`, button: 'Opciones', sections: [{ title: 'Editar plato', rows }] };
+}
+function renderEditAcompFrom(estado) {
+  const it = estado.items[estado.editIdx];
+  const rows = rowsConVolver(it.agregados || [], 'eaf', 0,
+    (nombre, idx) => ({ id: `eaf:${idx}`, title: String(nombre).slice(0, 24) }), 'eaf_volver', '↩ Volver');
+  return { tipo: 'list', text: '¿Cuál acompañamiento cambiás?', button: 'Acompañamientos', sections: [{ title: 'Actuales', rows }] };
+}
+function renderEditAcompTo(estado, menu, offset = 0) {
+  const it = estado.items[estado.editIdx];
+  const cupo = cupoIncluidos(it, menu);
+  const usados = (it.agregados || []).length;
+  // El reemplazo paga si la posición editada cae fuera del cupo incluido (regla de costo existente).
+  const pagaAviso = usados > cupo ? ` (los que exceden ${cupo} incluidos suman ${clp(2000)} c/u)` : '';
+  const rows = rowsConVolver(acompañamientos(menu), 'eat', offset,
+    (nombre, idx) => ({ id: `eat:${idx}`, title: String(nombre).slice(0, 24) }), 'eat_volver', '↩ Volver');
+  return { tipo: 'list', text: `¿Por cuál lo cambiás?${pagaAviso}`, button: 'Acompañamientos', sections: [{ title: 'Del día', rows }] };
+}
+function botonesResetConfirm() {
+  return { tipo: 'buttons', text: '¿Seguro que querés empezar de nuevo? Perdés el pedido armado.',
+    buttons: [{ id: 'reset_si', title: '🔄 Sí, de nuevo' }, { id: 'reset_no', title: '↩ No, volver' }] };
 }
 
 // ── pedido final (formato crearPedido) ───────────────────────────────────────
@@ -360,7 +413,67 @@ export function procesar(estado, input, menu) {
     }
     case PASOS.CONFIRMAR: {
       if (id === 'conf_si') { e.paso = PASOS.FIN; return { estado: e, salidas: [{ tipo: 'text', text: cierreTexto(e) }], pedido: armarPedido(e, menu) }; }
-      if (id === 'conf_reset') { const ne = estadoInicial(); return { estado: ne, salidas: [renderProteina(menu)] }; }
+      if (id === 'conf_editar') { e.paso = PASOS.EDIT_PICK; return { estado: e, salidas: [renderEditPick(e)] }; }
+      if (id === 'conf_reset') { e.paso = PASOS.RESET_CONFIRM; return { estado: e, salidas: [botonesResetConfirm()] }; }
+      return reRender();
+    }
+    case PASOS.RESET_CONFIRM: {
+      if (id === 'reset_si') { const ne = estadoInicial(); return { estado: ne, salidas: [renderProteina(menu)] }; }
+      if (id === 'reset_no') { e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [renderResumen(e, menu).salida] }; }
+      return reRender();
+    }
+    case PASOS.EDIT_PICK: {
+      const mMore = id.match(/^ep:more:(\d+)$/);
+      if (mMore) return { estado: e, salidas: [renderEditPick(e, Number(mMore[1]))] };
+      if (id === 'ep_volver') { e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [renderResumen(e, menu).salida] }; }
+      const m = id.match(/^ep:(\d+)$/);
+      if (m) { const idx = Number(m[1]); if (idx >= 0 && idx < e.items.length) { e.editIdx = idx; e.paso = PASOS.EDIT_ITEM; return { estado: e, salidas: [renderEditItem(e, menu)] }; } }
+      return reRender();
+    }
+    case PASOS.EDIT_ITEM: {
+      if (id === 'ei_volver') { e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [renderResumen(e, menu).salida] }; }
+      if (id === 'ei_acomp') {
+        const it = e.items[e.editIdx];
+        if (!it || !(it.agregados || []).length) return { estado: e, salidas: [renderEditItem(e, menu)] };
+        e.paso = PASOS.EDIT_ACOMP_FROM; return { estado: e, salidas: [renderEditAcompFrom(e)] };
+      }
+      if (id === 'ei_bebida') { e.paso = PASOS.EDIT_BEBIDA; return { estado: e, salidas: [renderBebida(menu)] }; }
+      if (id === 'ei_quitar') {
+        if (e.editIdx != null) e.items.splice(e.editIdx, 1);
+        e.editIdx = null;
+        if (!e.items.length) { const ne = estadoInicial(); return { estado: ne, salidas: [{ tipo: 'text', text: 'Quité el plato y quedó vacío el pedido. Armemos uno nuevo 🙂' }, renderProteina(menu)] }; }
+        e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [{ tipo: 'text', text: 'Listo, quité el plato.' }, renderResumen(e, menu).salida] };
+      }
+      return reRender();
+    }
+    case PASOS.EDIT_ACOMP_FROM: {
+      if (id === 'eaf_volver') { e.paso = PASOS.EDIT_ITEM; return { estado: e, salidas: [renderEditItem(e, menu)] }; }
+      const m = id.match(/^eaf:(\d+)$/);
+      if (m) { const idx = Number(m[1]); const it = e.items[e.editIdx]; if (it && idx >= 0 && idx < (it.agregados || []).length) { e.editAcompIdx = idx; e.paso = PASOS.EDIT_ACOMP_TO; return { estado: e, salidas: [renderEditAcompTo(e, menu)] }; } }
+      return reRender();
+    }
+    case PASOS.EDIT_ACOMP_TO: {
+      const mMore = id.match(/^eat:more:(\d+)$/);
+      if (mMore) return { estado: e, salidas: [renderEditAcompTo(e, menu, Number(mMore[1]))] };
+      if (id === 'eat_volver') { e.paso = PASOS.EDIT_ACOMP_FROM; return { estado: e, salidas: [renderEditAcompFrom(e)] }; }
+      const m = id.match(/^eat:(\d+)$/);
+      if (m) {
+        const ac = acompañamientos(menu); const idx = Number(m[1]); const it = e.items[e.editIdx];
+        if (it && idx >= 0 && idx < ac.length && e.editAcompIdx != null && e.editAcompIdx < (it.agregados || []).length) {
+          it.agregados[e.editAcompIdx] = ac[idx]; // sustitución Nivel 1; calcularItem recalcula el costo
+        }
+        e.editAcompIdx = null; e.paso = PASOS.CONFIRMAR;
+        return { estado: e, salidas: [{ tipo: 'text', text: 'Listo, cambié el acompañamiento.' }, renderResumen(e, menu).salida] };
+      }
+      return reRender();
+    }
+    case PASOS.EDIT_BEBIDA: {
+      const m = id.match(/^beb:(\d+)$/);
+      if (m || id === 'beb_no') {
+        const it = e.items[e.editIdx];
+        if (it) it.bebida = m ? (bebidas(menu)[Number(m[1])] ?? null) : null;
+        e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [{ tipo: 'text', text: 'Listo, cambié la bebida.' }, renderResumen(e, menu).salida] };
+      }
       return reRender();
     }
     case PASOS.FIN:
@@ -389,6 +502,12 @@ function renderPaso(e, menu) {
     case PASOS.CONFIRMA_DIR: return confirmarDireccion(e.direccion ?? '');
     case PASOS.PAGO: return botonesPago(e.tipo);
     case PASOS.CONFIRMAR: return renderResumen(e, menu).salida;
+    case PASOS.RESET_CONFIRM: return botonesResetConfirm();
+    case PASOS.EDIT_PICK: return renderEditPick(e);
+    case PASOS.EDIT_ITEM: return renderEditItem(e, menu);
+    case PASOS.EDIT_ACOMP_FROM: return renderEditAcompFrom(e);
+    case PASOS.EDIT_ACOMP_TO: return renderEditAcompTo(e, menu);
+    case PASOS.EDIT_BEBIDA: return renderBebida(menu);
     default: return { tipo: 'text', text: '🙂' };
   }
 }

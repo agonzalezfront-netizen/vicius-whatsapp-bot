@@ -141,6 +141,10 @@ export function setActiveMenu(payload) {
           // añadir más allá del cupo = $2.000 c/u (lo aplica precios.js). Retrocompat: si falta → [].
           agregados_incluidos: Array.isArray(e.agregados_incluidos)
             ? e.agregados_incluidos.map((x) => String(x).trim()).filter(Boolean) : [],
+          // Composición opcional del especial (pieza 1 wizard): [{nombre, reemplazable}]. La pieza 2 la usa
+          // para ofrecer sustituir componentes reemplazables por los agregados del día. Retrocompat: [].
+          componentes: Array.isArray(e.componentes)
+            ? e.componentes.filter((c) => c && c.nombre).map((c) => ({ nombre: String(c.nombre).trim(), reemplazable: !!c.reemplazable })) : [],
         }))
     : [];
 
