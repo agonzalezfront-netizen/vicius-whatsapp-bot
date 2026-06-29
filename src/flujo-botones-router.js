@@ -3,7 +3,7 @@
 //
 // Cadena por turno: cargar estado (wizard) → procesar(input) → guardar estado → enviar salidas →
 // si emite pedido: crearPedido + push al dueño + borrar estado.
-import { procesar, estadoInicial, saludoInicial, PASOS } from './flujo-botones.js';
+import { procesar, estadoInicial, saludoInicial, renderMenuCliente, PASOS } from './flujo-botones.js';
 import { getActiveMenu } from './active-menu.js';
 import {
   getEstadoFlujo, setEstadoFlujo, borrarEstadoFlujo, crearPedido,
@@ -48,6 +48,9 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
   if (!estado) {
     estado = estadoInicial();
     await sock.sendMessage(jid, payloadDe(saludoInicial()));
+    // Mejora UX-A: mostrar el menú COMPLETO en texto ANTES del 1er paso (el cliente ve el panorama).
+    const menuTxt = renderMenuCliente(menu);
+    if (menuTxt) await sock.sendMessage(jid, payloadDe(menuTxt));
     const r0 = procesar(estado, { tipo: 'init' }, menu); // input neutro → re-render del paso inicial (PROTEINA)
     await setEstadoFlujo(jid, r0.estado);
     await enviar(sock, jid, r0.salidas);

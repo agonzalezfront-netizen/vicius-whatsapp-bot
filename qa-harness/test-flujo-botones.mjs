@@ -1,7 +1,7 @@
 // Tests DETERMINISTAS del tier básico (flujo-botones.js) — SIN LLM, SIN red → gratis e instantáneo.
 // Cubre: flujo completo retiro/delivery, cálculo de total, multi-select de acompañamientos (2 gratis +
 // 3º $2.000), especial, extras, idempotencia ante taps fuera de orden, y emisión del pedido final.
-import { procesar, estadoInicial, PASOS } from '../src/flujo-botones.js';
+import { procesar, estadoInicial, renderMenuCliente, PASOS } from '../src/flujo-botones.js';
 
 const MENU = {
   price_typical: 7000,
@@ -53,8 +53,8 @@ console.log('\n=== D) Extra (Papas $2.000) → $9.000 ===');
 r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_add', 'ex:0', 'ex_listo', 'mm_seguir', 'mod_local', 'pay_local', 'conf_si']);
 check(r.pedido?.total === 9000, `total = $9.000 (7000 + 2000 papas) (got ${r.pedido?.total})`);
 
-console.log('\n=== E) Delivery + transferencia: suma $1.000 + status esperando_comprobante ===');
-r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_delivery', { tipo: 'text', texto: 'Los Aromos 123, casa' }, 'pay_transfer', 'conf_si']);
+console.log('\n=== E) Delivery + transferencia: suma $1.000 + status esperando_comprobante (con confirmación de dir) ===');
+r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_delivery', { tipo: 'text', texto: 'Los Aromos 123, casa' }, 'dir_ok', 'pay_transfer', 'conf_si']);
 check(r.pedido?.tipo === 'delivery', 'tipo delivery');
 check(r.pedido?.direccion === 'Los Aromos 123, casa', 'dirección capturada (texto libre)');
 check(r.pedido?.total === 8000, `total = $8.000 (7000 + 1000 delivery) (got ${r.pedido?.total})`);
@@ -89,6 +89,39 @@ let sStd = rStd.salidas[rStd.salidas.length - 1];
 check(!sStd.text.includes('suma'), 'estándar: NO avisa costo en el 1º (2 incluidos)');
 check((sStd.sections?.[0]?.title || '').includes('2 incluidos'), 'estándar: sección "2 incluidos · extra $2.000"');
 
+console.log('\n=== I) UX-B: confirmar dirección — paso intermedio antes de pago ===');
+// Tras escribir la dirección, NO debe ir directo a pago: debe pedir confirmación.
+let eI = estadoInicial();
+let seqDir = ['prot:0', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_delivery', { tipo: 'text', texto: 'San Martín 45 depto 302' }];
+let stI = eI, lastI = null;
+for (const s of seqDir) {
+  const input = typeof s === 'string' ? { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('beb:') ? 'list' : 'button', id: s } : s;
+  const rr = procesar(stI, input, MENU); stI = rr.estado; lastI = rr.salidas[rr.salidas.length - 1];
+}
+check(stI.paso === PASOS.CONFIRMA_DIR, `tras dirección → paso CONFIRMA_DIR (got ${stI.paso})`);
+check(lastI.text.includes('San Martín 45 depto 302'), 'confirma mostrando la dirección anotada');
+check(lastI.text.toLowerCase().includes('depto'), 'recuerda incluir el número de depto');
+check((lastI.buttons || []).some((b) => b.id === 'dir_ok') && (lastI.buttons || []).some((b) => b.id === 'dir_fix'), 'botones Confirmar/Corregir');
+// Corregir → vuelve a pedir dirección; nueva dir → re-confirma; confirmar → pago.
+let rFix = procesar(stI, { tipo: 'button', id: 'dir_fix' }, MENU);
+check(rFix.estado.paso === PASOS.DIRECCION, 'corregir → vuelve a DIRECCION');
+let rRe = procesar(rFix.estado, { tipo: 'text', texto: 'Av Siempre Viva 742' }, MENU);
+check(rRe.estado.paso === PASOS.CONFIRMA_DIR && rRe.estado.direccion === 'Av Siempre Viva 742', 're-confirma la nueva dirección');
+let rOk = procesar(rRe.estado, { tipo: 'button', id: 'dir_ok' }, MENU);
+check(rOk.estado.paso === PASOS.PAGO, 'confirmar → avanza a PAGO');
+// Confirmar por TEXTO también funciona (match-texto).
+let rOkTxt = procesar(rRe.estado, { tipo: 'text', texto: 'sí, correcta' }, MENU);
+check(rOkTxt.estado.paso === PASOS.PAGO, 'confirmar por texto ("sí, correcta") → PAGO');
+
+console.log('\n=== J) UX-A: render del menú cara-cliente (sin instrucciones internas) ===');
+const m = renderMenuCliente(MENU);
+check(!!m && m.tipo === 'text', 'renderMenuCliente devuelve texto');
+check(m.text.includes('Carne Mechada') && m.text.includes('Albacora'), 'lista proteínas del día + especiales');
+check(m.text.includes('$9.000'), 'muestra precio del especial');
+check(m.text.includes('Papas fritas') && m.text.includes('$2.000'), 'lista extras con precio');
+check(!/REGLA PARA EL BOT|🚨|Ignor[áa] el menú/.test(m.text), 'NO filtra instrucciones internas del prompt LLM');
+check(renderMenuCliente(null) === null, 'sin menú → null (no rompe el saludo)');
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (8 escenarios)');
+console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (10 escenarios)');
 process.exit(fails ? 1 : 0);

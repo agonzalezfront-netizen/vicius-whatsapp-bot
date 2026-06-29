@@ -15,7 +15,7 @@ import { calcularPedido, construirResumen } from './precios.js';
 export const PASOS = Object.freeze({
   PROTEINA: 'PROTEINA', ACOMP: 'ACOMP', BEBIDA: 'BEBIDA', EXTRAS: 'EXTRAS',
   MAS_MENUS: 'MAS_MENUS', MODALIDAD: 'MODALIDAD', DIRECCION: 'DIRECCION',
-  PAGO: 'PAGO', CONFIRMAR: 'CONFIRMAR', FIN: 'FIN',
+  CONFIRMA_DIR: 'CONFIRMA_DIR', PAGO: 'PAGO', CONFIRMAR: 'CONFIRMAR', FIN: 'FIN',
 });
 
 const MAX_ROWS = 10;     // límite de filas por list message (WhatsApp)
@@ -112,6 +112,13 @@ function botonesModalidad() {
   return { tipo: 'buttons', text: '¿Cómo lo quieres?',
     buttons: [{ id: 'mod_delivery', title: '🛵 Delivery' }, { id: 'mod_local', title: '🏠 Retiro local' }] };
 }
+// Confirmación de dirección (mejora UX 2026-06-29-B): la dirección es el único texto libre y no hay IA
+// para validarla → un "last chance" explícito baja errores de entrega. Recuerda el nº de depto.
+function confirmarDireccion(dir) {
+  return { tipo: 'buttons',
+    text: `Anoté: *${dir}*. ¿Es correcta? 📍 Si es *departamento*, asegurate de incluir el número de depto.`,
+    buttons: [{ id: 'dir_ok', title: '✅ Confirmar' }, { id: 'dir_fix', title: '✏️ Corregir' }] };
+}
 function botonesPago(tipo) {
   const presencial = tipo === 'local'
     ? { id: 'pay_local', title: 'En el local' }
@@ -192,6 +199,11 @@ export function matchTexto(paso, texto, menu) {
     case PASOS.MODALIDAD: {
       if (_algunaPalabra(t, ['delivery', 'despacho', 'envio', 'envío', 'domicilio', 'reparto'])) return 'mod_delivery';
       if (_algunaPalabra(t, ['retiro', 'local', 'buscar', 'paso a', 'paso', 'retirar'])) return 'mod_local';
+      return null;
+    }
+    case PASOS.CONFIRMA_DIR: {
+      if (_algunaPalabra(t, ['si', 'sí', 'correcta', 'correcto', 'confirmo', 'confirmar', 'ok', 'dale', 'listo', 'esta bien', 'está bien', 'asi es', 'así es', 'perfecto'])) return 'dir_ok';
+      if (_algunaPalabra(t, ['no', 'corregir', 'cambiar', 'mal', 'otra', 'error', 'equivoque', 'equivoqué', 'arreglar'])) return 'dir_fix';
       return null;
     }
     case PASOS.PAGO: {
@@ -298,8 +310,14 @@ export function procesar(estado, input, menu) {
       return reRender();
     }
     case PASOS.DIRECCION: {
-      if (input?.tipo === 'text' && texto) { e.direccion = texto.slice(0, 200); e.paso = PASOS.PAGO; return { estado: e, salidas: [botonesPago('delivery')] }; }
+      // Tras recibir la dirección NO avanzamos directo a pago: pasamos por confirmación (mejora UX-B).
+      if (input?.tipo === 'text' && texto) { e.direccion = texto.slice(0, 200); e.paso = PASOS.CONFIRMA_DIR; return { estado: e, salidas: [confirmarDireccion(e.direccion)] }; }
       return { estado: e, salidas: [{ tipo: 'text', text: 'Escríbeme la dirección por favor (calle, número, depto).' }] };
+    }
+    case PASOS.CONFIRMA_DIR: {
+      if (id === 'dir_ok') { e.paso = PASOS.PAGO; return { estado: e, salidas: [botonesPago('delivery')] }; }
+      if (id === 'dir_fix') { e.direccion = null; e.paso = PASOS.DIRECCION; return { estado: e, salidas: [{ tipo: 'text', text: 'Dale 🙂. Escribime de nuevo la dirección (calle, número, depto).' }] }; }
+      return reRender();
     }
     case PASOS.PAGO: {
       if (id === 'pay_local') e.metodo_pago = 'en_local';
@@ -337,6 +355,7 @@ function renderPaso(e, menu) {
     case PASOS.MAS_MENUS: return botonesMasMenus();
     case PASOS.MODALIDAD: return botonesModalidad();
     case PASOS.DIRECCION: return { tipo: 'text', text: 'Escríbeme la dirección (calle, número, depto).' };
+    case PASOS.CONFIRMA_DIR: return confirmarDireccion(e.direccion ?? '');
     case PASOS.PAGO: return botonesPago(e.tipo);
     case PASOS.CONFIRMAR: return renderResumen(e, menu).salida;
     default: return { tipo: 'text', text: '🙂' };
@@ -345,5 +364,33 @@ function renderPaso(e, menu) {
 
 // Saludo inicial (la capa de transporte lo manda + el primer render de proteína).
 export function saludoInicial() {
-  return { tipo: 'text', text: '¡Hola! 👋 Bienvenido a El Sazón. Armemos tu pedido tocando los botones 👇' };
+  return { tipo: 'text', text: '¡Hola! 👋 Bienvenido a El Sazón.' };
+}
+
+// Menú COMPLETO cara-cliente en texto (mejora UX 2026-06-29-A): se manda al inicio, ANTES del 1er paso de
+// botones, para que el cliente vea el panorama antes de elegir. SIN IA. NOTA: NO reutilizo
+// renderActiveMenuForPrompt (ese texto lleva instrucciones internas del bot 🚨/"REGLA PARA EL BOT" — no es
+// cara-cliente); armo uno limpio con los MISMOS datos del menú activo. Devuelve null si no hay menú.
+export function renderMenuCliente(menu) {
+  if (!menu) return null;
+  const prot = proteinasDisponibles(menu).map((p) => `• ${p.nombre}`).join('\n');
+  if (!prot) return null; // sin proteínas no hay menú que mostrar
+  const base = menu.price_typical ?? 7000;
+  const inc = acompañamientos(menu).join(', ') || '(consultar)';
+  const beb = bebidas(menu).map((b) => String(b).replace(/\s+natural$/i, '').trim()).join(' o ') || 'incluida';
+  const ex = extras(menu).map((e) => `${e.nombre} (${clp(e.precio)})`).join(', ');
+  const esp = especiales(menu).map((e) => {
+    const c = Array.isArray(e.agregados_incluidos) && e.agregados_incluidos.length
+      ? ` (incluye ${e.agregados_incluidos.join(', ')}; acompañamiento extra ${clp(2000)} c/u)`
+      : ` (acompañamientos ${clp(2000)} c/u)`;
+    return `• ${e.nombre} — ${clp(e.precio)}${e.desc ? ` · ${e.desc}` : ''}${c}`;
+  }).join('\n');
+  let t = `📋 *Menú de hoy*${menu.day_label ? ` — ${menu.day_label}` : ''}\n\n`;
+  t += `🍽️ *Plato del día* — ${clp(base)}\n_(incluye 2 acompañamientos + 1 bebida)_\n${prot}\n`;
+  if (esp) t += `\n⭐ *Especiales*\n${esp}\n`;
+  t += `\n🥗 *Acompañamientos* (2 incluidos · extra ${clp(2000)} c/u): ${inc}`;
+  t += `\n🥤 *Bebida incluida*: ${beb}`;
+  if (ex) t += `\n➕ *Extras*: ${ex}`;
+  t += `\n\nArmemos tu pedido tocando los botones 👇`;
+  return { tipo: 'text', text: t };
 }
