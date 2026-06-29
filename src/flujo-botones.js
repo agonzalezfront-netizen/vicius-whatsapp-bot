@@ -61,10 +61,14 @@ function renderProteina(menu, offset = 0) {
 function renderAcomp(menu, actual) {
   const ac = acompañamientos(menu);
   const n = actual.agregados.length;
+  const cupo = cupoIncluidos(actual, menu); // estándar=2, especial=su cupo (Pabellón=0 → todos pagan)
   const rows = pagedRows(ac, 'ac', 0, (nombre, idx) => ({ id: `ac:${idx}`, title: String(nombre).slice(0, 24) }));
-  const aviso = n >= 2 ? ` (el próximo suma ${clp(2000)})` : '';
+  // Aviso EN EL PUNTO DE DECISIÓN: si el próximo ya supera el cupo incluido, paga. Para cupo=0 (especial),
+  // ya el 1º paga → el aviso sale desde "Llevas 0" (fix BUG4 QA: el especial no da acompañamiento gratis).
+  const aviso = n >= cupo ? ` (suma ${clp(2000)} c/u)` : '';
+  const titulo = cupo > 0 ? `${cupo} incluidos · extra ${clp(2000)}` : `Cada uno ${clp(2000)}`;
   return { tipo: 'list', text: `Elige un acompañamiento${aviso}. Llevas ${n}.`, button: 'Acompañamientos',
-    sections: [{ title: '2 incluidos · extra $2.000', rows }] };
+    sections: [{ title: titulo, rows }] };
 }
 // Cupo de acompañamientos INCLUIDOS (gratis) del ítem actual: estándar = 2; especial = su cupo propio.
 function cupoIncluidos(actual, menu) {

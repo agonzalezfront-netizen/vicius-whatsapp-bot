@@ -73,6 +73,22 @@ r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_no', 'm
 check(r.pedido?.items?.length === 2, '2 ítems en el pedido');
 check(r.pedido?.total === 14000, `total = $14.000 (2 × $7.000) (got ${r.pedido?.total})`);
 
+console.log('\n=== H) BUG4: el especial avisa el costo del acompañamiento DESDE EL PRIMERO (cupo 0) ===');
+// Al elegir el especial (prot:3) el render de acompañamientos debe avisar que cada uno suma $2.000
+// (NO debe tratarse como "2 incluidos gratis" del menú del día).
+let eH = estadoInicial();
+let rEsp = procesar(eH, { tipo: 'list', id: 'prot:3' }, MENU); // elige Albacora (especial)
+let sEsp = rEsp.salidas[rEsp.salidas.length - 1];
+check(sEsp.text.includes('suma $2.000'), `especial: avisa "suma $2.000" desde "Llevas 0" (got: "${sEsp.text}")`);
+check(sEsp.text.includes('Llevas 0'), 'especial: arranca en "Llevas 0"');
+check((sEsp.sections?.[0]?.title || '').includes('Cada uno'), `especial: sección "Cada uno $2.000" (got: "${sEsp.sections?.[0]?.title}")`);
+// Y el estándar NO debe avisar costo en el primero (mantiene "2 incluidos").
+let eStd = estadoInicial();
+let rStd = procesar(eStd, { tipo: 'list', id: 'prot:0' }, MENU); // elige Carne Mechada (estándar)
+let sStd = rStd.salidas[rStd.salidas.length - 1];
+check(!sStd.text.includes('suma'), 'estándar: NO avisa costo en el 1º (2 incluidos)');
+check((sStd.sections?.[0]?.title || '').includes('2 incluidos'), 'estándar: sección "2 incluidos · extra $2.000"');
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (7 escenarios)');
+console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (8 escenarios)');
 process.exit(fails ? 1 : 0);
