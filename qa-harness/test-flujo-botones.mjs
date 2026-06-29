@@ -121,6 +121,10 @@ check(m.text.includes('$9.000'), 'muestra precio del especial');
 check(m.text.includes('Papas fritas') && m.text.includes('$2.000'), 'lista extras con precio');
 check(!/REGLA PARA EL BOT|🚨|Ignor[áa] el menú/.test(m.text), 'NO filtra instrucciones internas del prompt LLM');
 check(renderMenuCliente(null) === null, 'sin menú → null (no rompe el saludo)');
+// Orden (ajuste UX): especiales AL FINAL (después de extras), no después del plato del día.
+check(m.text.indexOf('Especiales') > m.text.indexOf('Extras'), 'especiales van DESPUÉS de extras (al final)');
+check(m.text.indexOf('Acompañamientos') < m.text.indexOf('Especiales'), 'acompañamientos antes que especiales');
+check(m.text.lastIndexOf('Armemos tu pedido') > m.text.indexOf('Especiales'), 'el cierre queda al final, tras especiales');
 
 console.log('\n=== RESULTADO ===');
 console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (10 escenarios)');

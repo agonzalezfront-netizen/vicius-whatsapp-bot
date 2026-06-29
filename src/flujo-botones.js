@@ -385,12 +385,14 @@ export function renderMenuCliente(menu) {
       : ` (acompañamientos ${clp(2000)} c/u)`;
     return `• ${e.nombre} — ${clp(e.precio)}${e.desc ? ` · ${e.desc}` : ''}${c}`;
   }).join('\n');
+  // Orden de secciones (ajuste UX QA 2026-06-29): el plato del día + sus componentes (acompañamientos,
+  // bebida, extras) forman un bloque coherente; los ESPECIALES van AL FINAL como alternativa aparte.
   let t = `📋 *Menú de hoy*${menu.day_label ? ` — ${menu.day_label}` : ''}\n\n`;
   t += `🍽️ *Plato del día* — ${clp(base)}\n_(incluye 2 acompañamientos + 1 bebida)_\n${prot}\n`;
-  if (esp) t += `\n⭐ *Especiales*\n${esp}\n`;
   t += `\n🥗 *Acompañamientos* (2 incluidos · extra ${clp(2000)} c/u): ${inc}`;
   t += `\n🥤 *Bebida incluida*: ${beb}`;
   if (ex) t += `\n➕ *Extras*: ${ex}`;
+  if (esp) t += `\n\n⭐ *Especiales* (platos aparte, precio propio)\n${esp}`;
   t += `\n\nArmemos tu pedido tocando los botones 👇`;
   return { tipo: 'text', text: t };
 }
