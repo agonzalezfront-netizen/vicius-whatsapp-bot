@@ -88,7 +88,9 @@ const clp = (n) => '$' + Number(n).toLocaleString('es-CL');
 
 // Arma el TEXTO del resumen, determinista, desde el pedido ya calculado.
 // La suma de las líneas con precio SIEMPRE da el total (es el mismo cómputo).
-export function construirResumen(calc) {
+// extrasPedido (opcional): líneas a nivel pedido que suman al total (ej. ajuste "fuera de carta" aplicado por
+// el local, pieza 2 FASE B). Retrocompat: sin extras → salida idéntica.
+export function construirResumen(calc, extrasPedido = []) {
   let out = '📋 *Tu pedido:*';
   for (const l of calc.lineas) {
     const desc = l.agregadosIncluidos.length ? ` con ${l.agregadosIncluidos.join(', ')}` : '';
@@ -106,6 +108,11 @@ export function construirResumen(calc) {
     out += `\n   Subtotal: ${clp(l.subtotal)}`;
   }
   if (calc.delivery) out += `\n\n+ Delivery: ${clp(calc.delivery)}`;
-  out += `\n\n*Total: ${clp(calc.total)}*`;
+  let total = calc.total;
+  for (const e of (Array.isArray(extrasPedido) ? extrasPedido : [])) {
+    out += `\n\n+ ${e.nombre} — ${clp(e.costo)}`;
+    total += Number(e.costo) || 0;
+  }
+  out += `\n\n*Total: ${clp(total)}*`;
   return out;
 }

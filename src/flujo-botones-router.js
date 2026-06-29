@@ -7,6 +7,7 @@ import { procesar, estadoInicial, saludoInicial, renderMenuCliente, PASOS } from
 import { getActiveMenu } from './active-menu.js';
 import {
   getEstadoFlujo, setEstadoFlujo, borrarEstadoFlujo, crearPedido,
+  crearSolicitudEspecial, getSolicitudEspecial,
 } from './pedidos-client.js';
 import { enviarPushEquipo } from './push.js';
 import { escalarAHumano } from './comunicaciones-client.js';
@@ -57,9 +58,34 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
     return;
   }
 
+  // RECONCILIACIÓN (pieza 2 FASE B, gap 1): si hay una solicitud fuera-de-carta PENDIENTE con id, consultamos
+  // su estado en el wizard ANTES de procesar e INYECTAMOS el resultado en el estado → la máquina (pura)
+  // renderiza el resumen actualizado (aplicado con costo / sigue pendiente). El efecto de red vive acá.
+  if (estado?.solicitud?.id && estado.solicitud.status === 'pendiente') {
+    try {
+      const s = await getSolicitudEspecial(estado.solicitud.id);
+      if (s && s.status === 'aplicado') {
+        estado.solicitud = { ...estado.solicitud, status: 'aplicado', costo: s.costo, descripcion: s.descripcion ?? estado.solicitud.descripcion };
+      }
+    } catch (e) { logger?.warn?.({ jid, err: e.message }, 'reconciliar solicitud: falla (sigo pendiente)'); }
+  }
+
   // La máquina maneja botón Y texto (intenta resolver el texto a una opción del paso; ver matchTexto).
   const input = btnId ? { tipo: 'button', id: btnId } : { tipo: 'text', texto };
   const r = procesar(estado, input, menu);
+
+  // Nivel 2: la máquina pidió CREAR una solicitud fuera-de-carta → el router hace el POST (efecto de red) y
+  // guarda el id devuelto en el estado para poder reconciliar después. Si falla, escala a humano (no se pierde).
+  if (r.crearSolicitud) {
+    try {
+      const res = await crearSolicitudEspecial({ cliente_jid: jid, cliente_nombre: senderName ?? '', plato: r.crearSolicitud.plato, descripcion: r.crearSolicitud.descripcion });
+      if (res?.id && r.estado?.solicitud) r.estado.solicitud.id = res.id;
+    } catch (e) {
+      logger?.error?.({ jid, err: e.message }, 'crearSolicitudEspecial FALLA → escalo');
+      escalarAHumano(jid, 'pedido-especial-tier-basico').catch(() => {});
+    }
+  }
+
   await setEstadoFlujo(jid, r.estado);
   await enviar(sock, jid, r.salidas);
   // Si el cliente escribió algo no reconocido 2 veces seguidas → la máquina pide escalar (duda).

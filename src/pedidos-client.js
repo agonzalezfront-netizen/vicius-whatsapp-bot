@@ -135,6 +135,26 @@ export async function borrarEstadoFlujo(jid) {
   return res.json();
 }
 
+// ── Solicitudes "fuera de carta" (pieza 2 FASE B, Nivel 2 async) ──────────────────────────────
+// El bot crea una solicitud PENDIENTE (no congela el pedido) y luego consulta su estado para reconciliar.
+export async function crearSolicitudEspecial({ cliente_jid, cliente_nombre, plato, descripcion }) {
+  const res = await fetch(`${WIZARD_BASE}/api/solicitud-especial`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
+    body: JSON.stringify({ cliente_jid, cliente_nombre, plato, descripcion }),
+  });
+  if (!res.ok) throw new Error(`crearSolicitudEspecial HTTP ${res.status}`);
+  return res.json(); // { ok, id }
+}
+
+export async function getSolicitudEspecial(id) {
+  const res = await fetch(`${WIZARD_BASE}/api/solicitud-especial?id=${encodeURIComponent(id)}`, {
+    headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
+  });
+  if (!res.ok) throw new Error(`getSolicitudEspecial HTTP ${res.status}`);
+  return (await res.json()).solicitud ?? null; // { id, status, costo, descripcion, ... }
+}
+
 export async function subirComprobante(pedidoId, buffer, mime) {
   const form = new FormData();
   const ext = mime?.includes('png') ? 'png' : 'jpg';

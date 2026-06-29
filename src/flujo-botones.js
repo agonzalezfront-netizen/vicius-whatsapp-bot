@@ -19,7 +19,8 @@ export const PASOS = Object.freeze({
   // Edición granular del pedido (pieza 2 FASE A): desde el resumen, editar un plato sin re-armarlo.
   EDIT_PICK: 'EDIT_PICK', EDIT_ITEM: 'EDIT_ITEM', EDIT_ACOMP_FROM: 'EDIT_ACOMP_FROM',
   EDIT_ACOMP_TO: 'EDIT_ACOMP_TO', EDIT_BEBIDA: 'EDIT_BEBIDA',
-  EDIT_COMP_FROM: 'EDIT_COMP_FROM', EDIT_COMP_TO: 'EDIT_COMP_TO', RESET_CONFIRM: 'RESET_CONFIRM',
+  EDIT_COMP_FROM: 'EDIT_COMP_FROM', EDIT_COMP_TO: 'EDIT_COMP_TO',
+  EDIT_ESPECIAL_TXT: 'EDIT_ESPECIAL_TXT', RESET_CONFIRM: 'RESET_CONFIRM',
   FIN: 'FIN',
 });
 
@@ -47,7 +48,7 @@ function pagedRows(items, idPrefix, offset = 0, mapRow) {
 
 // ── estado inicial ───────────────────────────────────────────────────────────
 export function estadoInicial() {
-  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0, editIdx: null, editAcompIdx: null, editCompIdx: null };
+  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0, editIdx: null, editAcompIdx: null, editCompIdx: null, solicitud: null };
 }
 function nuevoItem() { return { proteina: null, esEspecial: false, agregados: [], bebida: null, extras: [], componentes: [] }; }
 
@@ -148,9 +149,16 @@ function botonesPago(tipo) {
 }
 function renderResumen(estado, menu) {
   const calc = calcularPedido(estado.items, estado.tipo, menu, null);
-  const txt = construirResumen(calc) + (estado.tipo === 'delivery' && estado.direccion ? `\n\n🛵 ${estado.direccion}` : '');
-  return { calc, salida: { tipo: 'buttons', text: txt + '\n\n¿Confirmamos?',
-    buttons: [{ id: 'conf_si', title: '✅ Confirmar' }, { id: 'conf_editar', title: '✏️ Editar' }, { id: 'conf_reset', title: '🔄 Empezar de nuevo' }] } };
+  // Solicitud fuera-de-carta (pieza 2 FASE B): si está APLICADA, suma al total; si está PENDIENTE, se muestra
+  // aparte y los botones cambian a "seguir sin eso" / "esperar" (no congela; gap 1).
+  const sol = estado.solicitud;
+  const extrasPedido = (sol && sol.status === 'aplicado') ? [{ nombre: `🙋 ${sol.descripcion}`, costo: Number(sol.costo) || 0 }] : [];
+  let txt = construirResumen(calc, extrasPedido) + (estado.tipo === 'delivery' && estado.direccion ? `\n\n🛵 ${estado.direccion}` : '');
+  if (sol && sol.status === 'pendiente') txt += `\n\n⏳ Pedido especial: "${sol.descripcion}" — pendiente de confirmar el local.`;
+  const buttons = (sol && sol.status === 'pendiente')
+    ? [{ id: 'conf_sin_ajuste', title: '✅ Seguir sin eso' }, { id: 'conf_esperar', title: '⏳ Esperar' }, { id: 'conf_editar', title: '✏️ Editar' }]
+    : [{ id: 'conf_si', title: '✅ Confirmar' }, { id: 'conf_editar', title: '✏️ Editar' }, { id: 'conf_reset', title: '🔄 Empezar de nuevo' }];
+  return { calc, salida: { tipo: 'buttons', text: txt + '\n\n¿Confirmamos?', buttons } };
 }
 
 // ── edición granular (pieza 2 FASE A): editar un plato del pedido sin re-armarlo ────────────────
@@ -178,6 +186,7 @@ function renderEditItem(estado, menu) {
   if (it && (it.componentes || []).some((c) => c.reemplazable)) rows.push({ id: 'ei_comp', title: '🧩 Cambiar componente' });
   if (it && (it.agregados || []).length) rows.push({ id: 'ei_acomp', title: '🍽 Cambiar acompañamiento' });
   if (bebidas(menu).length) rows.push({ id: 'ei_bebida', title: '🥤 Cambiar bebida' });
+  rows.push({ id: 'ei_especial', title: '🙋 Pedir algo especial' });
   rows.push({ id: 'ei_quitar', title: '🗑 Quitar este plato' });
   rows.push({ id: 'ei_volver', title: '↩ Volver' });
   return { tipo: 'list', text: `Editar: *${nombreItem(it)}*. ¿Qué cambiás?`, button: 'Opciones', sections: [{ title: 'Editar plato', rows }] };
@@ -228,10 +237,14 @@ function botonesResetConfirm() {
 // ── pedido final (formato crearPedido) ───────────────────────────────────────
 function armarPedido(estado, menu) {
   const calc = calcularPedido(estado.items, estado.tipo, menu, null);
+  // Ajuste fuera-de-carta APLICADO por el local (pieza 2 FASE B): suma al total y viaja al board.
+  const sol = estado.solicitud;
+  const ajuste = (sol && sol.status === 'aplicado') ? { descripcion: sol.descripcion, costo: Number(sol.costo) || 0, plato: sol.plato } : null;
   return {
     items: estado.items,
-    total: calc.total,
+    total: calc.total + (ajuste ? ajuste.costo : 0),
     desglose: calc,
+    ...(ajuste ? { ajuste_especial: ajuste } : {}),
     metodo_pago: estado.metodo_pago,
     tipo: estado.tipo,
     direccion: estado.direccion,
@@ -335,7 +348,7 @@ export function procesar(estado, input, menu) {
   // resolver el texto a una opción del paso. Si no se reconoce: re-render con hint; al 2º fallo seguido
   // → escalar a humano (flag para el router). DIRECCION usa el texto tal cual; FIN no aplica.
   let id = input?.id ?? '';
-  if (input?.tipo === 'text' && texto && e.paso !== PASOS.DIRECCION && e.paso !== PASOS.FIN) {
+  if (input?.tipo === 'text' && texto && e.paso !== PASOS.DIRECCION && e.paso !== PASOS.EDIT_ESPECIAL_TXT && e.paso !== PASOS.FIN) {
     const resuelto = matchTexto(e.paso, texto, menu);
     if (resuelto) { id = resuelto; e.intentos = 0; }
     else {
@@ -447,6 +460,10 @@ export function procesar(estado, input, menu) {
       if (id === 'conf_si') { e.paso = PASOS.FIN; return { estado: e, salidas: [{ tipo: 'text', text: cierreTexto(e) }], pedido: armarPedido(e, menu) }; }
       if (id === 'conf_editar') { e.paso = PASOS.EDIT_PICK; return { estado: e, salidas: [renderEditPick(e)] }; }
       if (id === 'conf_reset') { e.paso = PASOS.RESET_CONFIRM; return { estado: e, salidas: [botonesResetConfirm()] }; }
+      // Solicitud fuera-de-carta pendiente: "seguir sin eso" = descartar el ajuste y confirmar ya;
+      // "esperar" = re-render (el router ya reconcilió al cargar; si el local respondió, ahora muestra Confirmar).
+      if (id === 'conf_sin_ajuste') { e.solicitud = null; e.paso = PASOS.FIN; return { estado: e, salidas: [{ tipo: 'text', text: cierreTexto(e) }], pedido: armarPedido(e, menu) }; }
+      if (id === 'conf_esperar') { return { estado: e, salidas: [renderResumen(e, menu).salida] }; }
       return reRender();
     }
     case PASOS.RESET_CONFIRM: {
@@ -475,6 +492,7 @@ export function procesar(estado, input, menu) {
         e.paso = PASOS.EDIT_ACOMP_FROM; return { estado: e, salidas: [renderEditAcompFrom(e)] };
       }
       if (id === 'ei_bebida') { e.paso = PASOS.EDIT_BEBIDA; return { estado: e, salidas: [renderBebida(menu)] }; }
+      if (id === 'ei_especial') { e.paso = PASOS.EDIT_ESPECIAL_TXT; return { estado: e, salidas: [{ tipo: 'text', text: 'Escribime qué te gustaría que no está en el menú 🙂. Se lo paso al local y lo confirman antes de cerrar.' }] }; }
       if (id === 'ei_quitar') {
         if (e.editIdx != null) e.items.splice(e.editIdx, 1);
         e.editIdx = null;
@@ -534,6 +552,22 @@ export function procesar(estado, input, menu) {
       }
       return reRender();
     }
+    case PASOS.EDIT_ESPECIAL_TXT: {
+      // Nivel 2 (fuera de carta): captura el texto crudo y crea una solicitud PENDIENTE. La red la hace el
+      // router (señal `crearSolicitud`); acá dejamos la solicitud "draft" para que el resumen ya la muestre.
+      if (input?.tipo === 'text' && texto) {
+        const plato = nombreItem(e.items[e.editIdx]);
+        const descripcion = texto.slice(0, 300);
+        e.solicitud = { id: null, plato, descripcion, status: 'pendiente', costo: null };
+        e.paso = PASOS.CONFIRMAR;
+        return {
+          estado: e,
+          salidas: [{ tipo: 'text', text: 'Le paso tu pedido especial al local 🙂. Seguimos armando el resto y lo confirman antes de cerrar.' }, renderResumen(e, menu).salida],
+          crearSolicitud: { plato, descripcion },
+        };
+      }
+      return { estado: e, salidas: [{ tipo: 'text', text: 'Escribime qué querés (algo que no está en el menú).' }] };
+    }
     case PASOS.FIN:
     default:
       return reRender();
@@ -568,6 +602,7 @@ function renderPaso(e, menu) {
     case PASOS.EDIT_BEBIDA: return renderBebida(menu);
     case PASOS.EDIT_COMP_FROM: return renderEditCompFrom(e);
     case PASOS.EDIT_COMP_TO: return renderEditCompTo(e, menu);
+    case PASOS.EDIT_ESPECIAL_TXT: return { tipo: 'text', text: 'Escribime qué querés (algo que no está en el menú).' };
     default: return { tipo: 'text', text: '🙂' };
   }
 }

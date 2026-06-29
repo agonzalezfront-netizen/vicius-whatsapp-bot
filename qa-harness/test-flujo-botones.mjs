@@ -236,6 +236,37 @@ check(rSalsa.estado.paso === PASOS.EDIT_COMP_FROM, 'componente no reemplazable (
 const resumenTxt = correr(albacoraResumen).last.text;
 check(/viene con: .*Tajadas/.test(resumenTxt), `el resumen muestra "viene con: ...Tajadas" (got: "${resumenTxt.split('\\n').find(l => l.includes('viene con')) || '?'}")`);
 
+console.log('\n=== N) Nivel 2 — pedido fuera de carta (async, FASE B) ===');
+// Armar estándar hasta el resumen, editar el plato, pedir algo especial.
+let stN = estadoInicial();
+for (const s of hastaResumen) { stN = procesar(stN, { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('beb:') ? 'list' : 'button', id: s }, MENU).estado; }
+stN = procesar(stN, { tipo: 'button', id: 'conf_editar' }, MENU).estado;
+stN = procesar(stN, { tipo: 'list', id: 'ep:0' }, MENU).estado;
+stN = procesar(stN, { tipo: 'list', id: 'ei_especial' }, MENU).estado;
+check(stN.paso === PASOS.EDIT_ESPECIAL_TXT, 'ei_especial → EDIT_ESPECIAL_TXT');
+const rTxt = procesar(stN, { tipo: 'text', texto: 'torta de chocolate' }, MENU);
+check(rTxt.crearSolicitud && rTxt.crearSolicitud.descripcion === 'torta de chocolate', 'emite señal crearSolicitud (router hace el POST)');
+check(rTxt.crearSolicitud.plato === 'Carne Mechada', 'solicitud etiquetada con el plato (gap 3)');
+check(rTxt.estado.solicitud && rTxt.estado.solicitud.status === 'pendiente', 'solicitud draft queda pendiente');
+check(rTxt.estado.paso === PASOS.CONFIRMAR, 'vuelve a CONFIRMAR (no congela)');
+const sPend = rTxt.salidas[rTxt.salidas.length - 1];
+check(/pendiente de confirmar el local/.test(sPend.text), 'resumen muestra el pedido especial pendiente');
+check((sPend.buttons || []).some((b) => b.id === 'conf_sin_ajuste') && (sPend.buttons || []).some((b) => b.id === 'conf_esperar'), 'botones: seguir sin eso / esperar');
+// N2: "seguir sin eso" → confirma sin el ajuste.
+const rSin = procesar(structuredClone(rTxt.estado), { tipo: 'button', id: 'conf_sin_ajuste' }, MENU);
+check(!!rSin.pedido && rSin.pedido.total === 7000 && !rSin.pedido.ajuste_especial, 'seguir sin eso → pedido $7.000 sin ajuste');
+// N3: el router reconcilia (inyecta aplicado) → "esperar" re-render muestra ajuste + costo + botón Confirmar.
+const stApp = structuredClone(rTxt.estado);
+stApp.solicitud = { ...stApp.solicitud, status: 'aplicado', costo: 3000, descripcion: 'torta de chocolate' };
+const sApp = procesar(stApp, { tipo: 'button', id: 'conf_esperar' }, MENU).salidas.slice(-1)[0];
+check(/torta de chocolate/.test(sApp.text) && /3\.000/.test(sApp.text), 'aplicado: resumen muestra ajuste + costo');
+check(/Total: \$10\.000/.test(sApp.text), `aplicado: total $10.000 (7000+3000) (got: "${sApp.text.split('\\n').find(l => l.includes('Total')) || '?'}")`);
+check((sApp.buttons || []).some((b) => b.id === 'conf_si'), 'aplicado: vuelve el botón Confirmar');
+// N4: confirmar con ajuste aplicado → pedido con ajuste_especial y total sumado.
+const rConf = procesar(structuredClone(stApp), { tipo: 'button', id: 'conf_si' }, MENU);
+check(rConf.pedido && rConf.pedido.total === 10000, 'confirmar aplicado → total $10.000');
+check(rConf.pedido.ajuste_especial && rConf.pedido.ajuste_especial.costo === 3000, 'pedido lleva ajuste_especial ($3.000)');
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (13 escenarios)');
+console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (14 escenarios)');
 process.exit(fails ? 1 : 0);
