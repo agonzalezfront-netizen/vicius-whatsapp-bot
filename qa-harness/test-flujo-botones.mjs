@@ -161,12 +161,13 @@ for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0']) {
 }
 check(stK.paso === PASOS.EXTRAS, 'tras bebida → paso EXTRAS');
 check(lastK.tipo === 'buttons', '2 extras → reply buttons directos (sin lista intermedia)');
-check((lastK.buttons || []).some((b) => b.id === 'ex:0' && /Papas/.test(b.title)), 'botón directo del extra Papas (id ex:0 + precio en título)');
+check((lastK.buttons || []).some((b) => b.id === 'ex:0' && /Papas/.test(b.title)), 'botón directo del extra Papas (id ex:0, nombre sin precio)');
 check((lastK.buttons || []).some((b) => b.id === 'ex:1' && /Quesillo/.test(b.title)), 'botón directo del extra Quesillo (id ex:1)');
 check((lastK.buttons || []).some((b) => b.id === 'ex_no') && !(lastK.buttons || []).some((b) => b.id === 'ex_add'), '"No, seguir" presente y SIN el viejo "Agregar extra"');
 const rK1 = procesar(stK, { tipo: 'button', id: 'ex:0' }, MENU);
 check(rK1.estado.actual.extras.includes('Papas fritas'), 'tocar el extra lo selecciona al toque');
-check((rK1.salidas.slice(-1)[0].buttons || []).some((b) => b.id === 'ex:1'), 're-render ofrece SOLO el extra restante (Quesillo)');
+// R3-3: los extras son REPETIBLES → tras elegir Papas, el re-render SIGUE ofreciendo Papas (ex:0) y Quesillo (ex:1).
+check((rK1.salidas.slice(-1)[0].buttons || []).some((b) => b.id === 'ex:0') && (rK1.salidas.slice(-1)[0].buttons || []).some((b) => b.id === 'ex:1'), 'R3-3: re-render sigue ofreciendo el ya elegido (repetible) + el otro');
 
 console.log('\n=== L) Editar pedido (pieza 2 FASE A) ===');
 // Pedido estándar con 2 acompañamientos (Arroz, Tajadas) + Consomé, retiro local → hasta el resumen.
@@ -360,6 +361,61 @@ check(/elegí una/.test(menuTxt) && /🥤 \*Bebida incluida\*[^\n]*:\n · /.test
 check(/➕ \*Extras\*:\n · /.test(menuTxt), 'R2-1: extras con "·" en líneas');
 check(!/Acompañamientos\* \(2 incluidos[^\n]*\): [A-Z]/.test(menuTxt), 'R2-1: NO quedan ítems pegados con comas tras los dos puntos');
 
+console.log('\n=== V) R3-1: menú de inicio con línea en blanco entre secciones ===');
+const menuR3 = renderMenuCliente(MENU).text;
+check(/· Ensalada mixta\n\n🥤 \*Bebida incluida\*/.test(menuR3) || /\n\n🥤 \*Bebida incluida\*/.test(menuR3), 'R3-1: línea en blanco antes de 🥤 Bebida');
+check(/\n\n➕ \*Extras\*/.test(menuR3), 'R3-1: línea en blanco antes de ➕ Extras');
+check(!/[^\n]\n🥤 \*Bebida/.test(menuR3) && !/[^\n]\n➕ \*Extras/.test(menuR3), 'R3-1: NO quedan secciones pegadas con un solo \\n');
+
+console.log('\n=== W) R3-2b: la salida ("Listo") va PRIMERO en las listas ===');
+// Acompañamientos del día.
+const sAcW = procesar(procesar(estadoInicial(), { tipo: 'list', id: 'prot:0' }, MENU).estado, { tipo: 'list', id: '__rr__' }, MENU).salidas.slice(-1)[0];
+check(sAcW.sections?.[0]?.rows?.[0]?.id === 'ac_listo', 'R3-2b: en acompañamientos, "Listo así" es la 1ª fila');
+// Paso combinado del especial.
+let stW = procesar(estadoInicial(), { tipo: 'list', id: 'prot:3' }, MENU).estado;
+stW = procesar(stW, { tipo: 'button', id: 'beb:0' }, MENU).estado;
+const sEspW = procesar(stW, { tipo: 'list', id: '__rr__' }, MENU).salidas.slice(-1)[0];
+check(sEspW.sections?.[0]?.rows?.[0]?.id === 'esp_listo', 'R3-2b: en el paso combinado, "Listo" es la 1ª fila');
+check(sEspW.button === 'Ver opciones', 'R3-2a: el botón del List combinado dice "Ver opciones" (no "Agregar")');
+
+console.log('\n=== X) R3-3: cantidades múltiples en pagados → consolida x2 ===');
+// Especial + 2× el mismo acompañamiento pagado (ac:0 dos veces) → $9.000 + $4.000 = $13.000, "x2" en resumen.
+let rX = correr(['prot:3', 'beb:0', 'ac:0', 'ac:0', 'esp_listo', 'mm_seguir', 'mod_local', 'pay_local']);
+const resumenX = renderMenuCliente ? procesar(rX.estado, { tipo: 'button', id: '__rr__' }, MENU).salidas.slice(-1)[0].text : '';
+check(/x2/.test(resumenX), `R3-3: el resumen consolida "x2" (got: "${resumenX.split('\n').find((l) => /x2/.test(l)) || '?'}")`);
+const pedX = procesar(rX.estado, { tipo: 'button', id: 'conf_si' }, MENU).pedido;
+check(pedX?.total === 13000, `R3-3: 2× acompañamiento pagado → $13.000 (got ${pedX?.total})`);
+// Extra repetible: en el especial, tomar el mismo extra (ex:0) 2 veces → entra 2 veces.
+let rX2 = correr(['prot:3', 'beb:0', 'ex:0', 'ex:0', 'esp_listo', 'mm_seguir', 'mod_local', 'pay_local', 'conf_si']);
+check((rX2.pedido?.items?.[0]?.extras || []).filter((e) => e === 'Papas fritas').length === 2, 'R3-3: el extra pagado se puede repetir (2× Papas fritas)');
+
+console.log('\n=== Y) R3-4: Editar → "Agregar algo más" con precio según cupo ===');
+// Normal con 1 acompañamiento (cupo libre = 1). Editar → agregar: 1 normal GRATIS + el resto $2.000.
+let stY = estadoInicial();
+for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_editar', 'ep:0']) {
+  stY = procesar(stY, { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('ep:') ? 'list' : 'button', id: s }, MENU).estado;
+}
+const sEditY = procesar(stY, { tipo: 'list', id: '__rr__' }, MENU).salidas.slice(-1)[0];
+check((sEditY.sections?.[0]?.rows || []).some((r) => r.id === 'ei_agregar'), 'R3-4: el menú Editar ofrece "Agregar algo más"');
+let stYa = procesar(stY, { tipo: 'list', id: 'ei_agregar' }, MENU);
+const sAggY = stYa.salidas.slice(-1)[0];
+check(stYa.estado.paso === PASOS.EDIT_AGREGAR, 'ei_agregar → EDIT_AGREGAR');
+check(sAggY.sections?.[0]?.rows?.[0]?.id === 'ea_listo', 'R3-4: "Listo" primero (R3-2b)');
+const filaAcY = (sAggY.sections?.[0]?.rows || []).find((r) => r.id === 'ea_ac:0');
+check(filaAcY && /Incluido/.test(filaAcY.description), 'R3-4: con cupo libre, el acompañamiento normal figura "Incluido"');
+// Agregar 1 normal (gratis, completa el cupo) → total sigue $7.000.
+let rY = correr(['prot:0', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_editar', 'ep:0', 'ei_agregar', 'ea_ac:2', 'ea_listo', 'conf_si']);
+check(rY.pedido?.total === 7000 && (rY.pedido?.items?.[0]?.agregados || []).length === 2, `R3-4: normal con cupo → agregado gratis, $7.000 (got ${rY.pedido?.total})`);
+// Agregar un extra pagado en la edición → +$2.000.
+let rY2 = correr(['prot:0', 'ac:0', 'ac:1', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_editar', 'ep:0', 'ei_agregar', 'ea_ex:0', 'ea_listo', 'conf_si']);
+check(rY2.pedido?.total === 9000, `R3-4: cupo lleno → extra pagado suma $2.000 → $9.000 (got ${rY2.pedido?.total})`);
+
+console.log('\n=== Z) R3-5: aviso de dirección SOLO en delivery ===');
+let rZ = correr(['prot:0', 'ac:0', 'ac:1', 'beb:0', 'ex_no', 'mm_seguir', 'mod_delivery', { tipo: 'text', texto: 'Los Aromos 123' }, 'dir_ok', 'pay_efectivo']);
+check(/⚠️.*dirección/i.test(rZ.last.text), 'R3-5: delivery → aviso ⚠️ de verificar dirección en el resumen');
+let rZ2 = correr(['prot:0', 'ac:0', 'ac:1', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local']);
+check(!/⚠️.*dirección/i.test(rZ2.last.text), 'R3-5: retiro local → SIN aviso de dirección');
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : `TODO OK (${22} escenarios)`);
+console.log(fails ? `${fails} FALLO(S)` : `TODO OK (${27} escenarios)`);
 process.exit(fails ? 1 : 0);

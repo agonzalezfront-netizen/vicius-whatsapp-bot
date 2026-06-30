@@ -19,7 +19,7 @@ export const PASOS = Object.freeze({
   // Edición granular del pedido (pieza 2 FASE A): desde el resumen, editar un plato sin re-armarlo.
   EDIT_PICK: 'EDIT_PICK', EDIT_ITEM: 'EDIT_ITEM', EDIT_ACOMP_FROM: 'EDIT_ACOMP_FROM',
   EDIT_ACOMP_TO: 'EDIT_ACOMP_TO', EDIT_BEBIDA: 'EDIT_BEBIDA', EDIT_PARTE_FROM: 'EDIT_PARTE_FROM',
-  EDIT_COMP_FROM: 'EDIT_COMP_FROM', EDIT_COMP_TO: 'EDIT_COMP_TO',
+  EDIT_COMP_FROM: 'EDIT_COMP_FROM', EDIT_COMP_TO: 'EDIT_COMP_TO', EDIT_AGREGAR: 'EDIT_AGREGAR',
   EDIT_ESPECIAL_TXT: 'EDIT_ESPECIAL_TXT', RESET_CONFIRM: 'RESET_CONFIRM',
   FIN: 'FIN',
 });
@@ -76,9 +76,10 @@ function renderAcomp(menu, actual) {
   const lista = ac.length ? '\n' + ac.map((nombre) => `· ${nombre}`).join('\n') : '';
   // H1 (2026-06-30): elegir SIN iteración intermedia — la lista trae los acompañamientos (repetibles) + la
   // salida "Listo así" ADENTRO. Tras elegir uno, el handler re-despliega la lista directo (sin el "+ Otro").
-  const rows = ac.slice(0, 9).map((nombre, idx) => ({ id: `ac:${idx}`, title: String(nombre).slice(0, 24) }));
-  rows.push({ id: 'ac_listo', title: '✅ Listo así', description: 'No agregar más acompañamientos' });
-  return { tipo: 'list', text: `Elige un acompañamiento (${regla}). Llevas ${n}.${lista}`, button: 'Acompañamientos',
+  // R3-2b (2026-06-30): la salida va PRIMERO (quien no quiere agregar la ve sin scrollear).
+  const rows = [{ id: 'ac_listo', title: '✅ Listo así', description: 'No agregar más acompañamientos' },
+    ...ac.slice(0, 9).map((nombre, idx) => ({ id: `ac:${idx}`, title: String(nombre).slice(0, 24) }))];
+  return { tipo: 'list', text: `Elige un acompañamiento (${regla}). Llevas ${n}.${lista}`, button: 'Ver opciones',
     sections: [{ title: '2 incluidos gratis', rows }] };
 }
 // R2-4 (2026-06-30) — paso COMBINADO del ESPECIAL: un solo "¿agregar algo más? ($2.000 c/u)" con la lista
@@ -87,15 +88,16 @@ function renderAcomp(menu, actual) {
 // cada fila ("Especial $2.000"), nunca en el título (se trunca). Ids: ac:i (acompañamiento) / ex:i (extra).
 function renderEspAgregar(menu, actual) {
   const ac = acompañamientos(menu);
-  const exRem = extrasDisponibles(menu, actual);
+  const ex = extras(menu); // R3-3 (2026-06-30): TODOS los extras, REPETIBLES (no se filtran los ya elegidos).
   const yaTiene = (actual.agregados.length + (actual.extras?.length ?? 0)) > 0;
-  const rows = [];
-  ac.forEach((nombre, idx) => rows.push({ id: `ac:${idx}`, title: String(nombre).slice(0, 24), description: `Especial ${clp(2000)}` }));
-  exRem.forEach((e) => rows.push({ id: `ex:${e.idx}`, title: String(e.nombre).slice(0, 24), description: `Especial ${clp(e.precio)}` }));
-  const capped = rows.slice(0, MAX_ROWS - 1); // 1 fila reservada para "Listo así"
-  capped.push({ id: 'esp_listo', title: yaTiene ? '✅ Listo' : 'No, seguir', description: 'No agregar nada más' });
-  return { tipo: 'list', text: '¿Querés agregar algo más? (cada uno cuesta $2.000)', button: 'Agregar',
-    sections: [{ title: 'Agregados del especial', rows: capped }] };
+  const opts = [];
+  ac.forEach((nombre, idx) => opts.push({ id: `ac:${idx}`, title: String(nombre).slice(0, 24), description: `Especial ${clp(2000)}` }));
+  ex.forEach((e, idx) => opts.push({ id: `ex:${idx}`, title: String(e.nombre).slice(0, 24), description: `Especial ${clp(e.precio)}` }));
+  // R3-2b: la salida va PRIMERO; reservo su fila → el resto cabe en MAX_ROWS-1.
+  const salida = { id: 'esp_listo', title: yaTiene ? '✅ Listo' : 'No, seguir', description: 'No agregar nada más' };
+  const rows = [salida, ...opts.slice(0, MAX_ROWS - 1)];
+  return { tipo: 'list', text: '¿Querés agregar algo más? (cada uno cuesta $2.000)', button: 'Ver opciones', // R3-2a
+    sections: [{ title: 'Agregados del especial', rows }] };
 }
 function renderBebida(menu) {
   const bs = bebidas(menu);
@@ -103,32 +105,26 @@ function renderBebida(menu) {
   btns.push({ id: 'beb_no', title: 'Sin bebida' });
   return { tipo: 'buttons', text: '¿Qué bebida? (incluida) 🥤', buttons: btns.slice(0, 3) };
 }
-// Paso de extras — selección DIRECTA según cantidad, sin iteración intermedia (UX QA 2026-06-29 §item1):
-// 0 extras → el caller saltea el paso; 1-2 → reply buttons directos (extra(s) + "No, seguir"); ≥3 → List
-// "Ver extras" (extras + "No, seguir" como última fila). El cliente toca el extra al toque, sin abrir una
-// 2ª lista. Devuelve null si no quedan extras por ofrecer (→ el caller avanza). Los ids usan el índice
-// ORIGINAL del menú (precios.js los matchea por índice).
-function extrasDisponibles(menu, actual) {
-  const tomados = new Set(actual?.extras ?? []);
-  return extras(menu).map((e, idx) => ({ ...e, idx })).filter((e) => !tomados.has(e.nombre));
-}
+// Paso de extras (solo plato del día) — selección DIRECTA: 0 extras en el menú → el caller saltea el paso;
+// 1-2 → reply buttons directos (extra(s) + salida); ≥3 → List con la salida PRIMERO (R3-2b). R3-3: los extras
+// son REPETIBLES (no se filtran los ya elegidos). Los ids usan el índice ORIGINAL del menú (precios.js matchea por índice).
 function renderExtras(menu, actual) {
-  const rem = extrasDisponibles(menu, actual);
-  if (!rem.length) return null; // nada que ofrecer → avanzar
+  const all = extras(menu); // R3-3 (2026-06-30): TODOS los extras, REPETIBLES (no se filtran los ya elegidos).
+  if (!all.length) return null; // nada que ofrecer → avanzar
   const yaTiene = (actual?.extras ?? []).length > 0;
   const cab = yaTiene ? '¿Otro extra?' : '¿Querés agregar un extra? (opcional)';
   const salir = { id: 'ex_no', title: yaTiene ? '✅ Listo' : 'No, seguir' };
   // R2-3 (2026-06-30): el precio NUNCA en el label del botón (se trunca, ~20 chars) → va en el TEXTO de arriba.
-  if (rem.length <= 2) {
-    const lista = '\n' + rem.map((e) => `· ${e.nombre} — ${clp(e.precio)}`).join('\n');
-    const btns = rem.map((e) => ({ id: `ex:${e.idx}`, title: String(e.nombre).slice(0, 20) }));
+  if (all.length <= 2) {
+    const lista = '\n' + all.map((e) => `· ${e.nombre} — ${clp(e.precio)}`).join('\n');
+    const btns = all.map((e, idx) => ({ id: `ex:${idx}`, title: String(e.nombre).slice(0, 20) }));
     btns.push(salir);
     return { tipo: 'buttons', text: cab + lista, buttons: btns.slice(0, 3) };
   }
-  // R2-7: en el List el precio va en la BAJADA de la fila ("Especial $2.000"), no en el título.
-  const rows = rem.slice(0, 9).map((e) => ({ id: `ex:${e.idx}`, title: String(e.nombre).slice(0, 24), description: `Especial ${clp(e.precio)}` }));
-  rows.push({ id: 'ex_no', title: salir.title });
-  return { tipo: 'list', text: cab, button: 'Ver extras', sections: [{ title: 'Extras pagados', rows }] };
+  // R3-2b: la salida va PRIMERO. R2-7: en el List el precio va en la BAJADA ("Especial $2.000"), no en el título.
+  const rows = [{ id: 'ex_no', title: salir.title, description: 'No agregar más' },
+    ...all.slice(0, 9).map((e, idx) => ({ id: `ex:${idx}`, title: String(e.nombre).slice(0, 24), description: `Especial ${clp(e.precio)}` }))];
+  return { tipo: 'list', text: cab, button: 'Ver opciones', sections: [{ title: 'Extras pagados', rows }] };
 }
 // Entra al paso de extras (o lo saltea si el menú no tiene extras).
 function entrarExtras(e, menu) {
@@ -139,7 +135,7 @@ function entrarExtras(e, menu) {
 // Entra al paso COMBINADO del especial (R2-4): acompañamientos + extras, todo $2.000. Si el menú no tiene ni
 // acompañamientos ni extras para ofrecer, saltea y cierra el ítem.
 function entrarEspAgregar(e, menu) {
-  if (!acompañamientos(menu).length && !extrasDisponibles(menu, e.actual).length) return avanzarTrasExtras(e, menu);
+  if (!acompañamientos(menu).length && !extras(menu).length) return avanzarTrasExtras(e, menu);
   e.paso = PASOS.ESP_AGREGAR;
   return { estado: e, salidas: [renderEspAgregar(menu, e.actual)] };
 }
@@ -191,7 +187,10 @@ function renderResumen(estado, menu) {
   }
   // Solicitud APLICADA → suma al total. Sin solicitud → resumen normal.
   const extrasPedido = (sol && sol.status === 'aplicado') ? [{ nombre: `🙋 ${sol.descripcion}`, costo: Number(sol.costo) || 0 }] : [];
-  const txt = construirResumen(calc, extrasPedido) + dirTxt;
+  // R3-5 (2026-06-30): solo en DELIVERY, recordar que verificar la dirección es responsabilidad del cliente.
+  const avisoDir = (estado.tipo === 'delivery' && estado.direccion)
+    ? '\n\n⚠️ Revisá que tu dirección esté correcta — la entrega depende de eso.' : '';
+  const txt = construirResumen(calc, extrasPedido) + dirTxt + avisoDir;
   return { calc, salida: { tipo: 'buttons', text: txt + '\n\n¿Confirmamos?', buttons: [
     { id: 'conf_si', title: '✅ Confirmar' }, { id: 'conf_editar', title: '✏️ Editar' }, { id: 'conf_reset', title: '🔄 Empezar de nuevo' },
   ] } };
@@ -235,10 +234,35 @@ function renderEditItem(estado, menu) {
   const tieneParts = it && ((it.componentes || []).some((c) => c.reemplazable) || (it.agregados || []).length);
   if (tieneParts) rows.push({ id: 'ei_parte', title: '🍽 Cambiar algo del plato', description: 'Cambiá una parte por otra del día o un extra' });
   if (bebidas(menu).length) rows.push({ id: 'ei_bebida', title: '🥤 Cambiar bebida', description: 'Elegí otra bebida incluida' });
+  // R3-4 (2026-06-30): sumar un acompañamiento o extra a un plato ya armado (precio según el cupo del plato).
+  if (acompañamientos(menu).length || extras(menu).length) rows.push({ id: 'ei_agregar', title: '➕ Agregar algo más', description: 'Sumá un acompañamiento o un extra' });
   rows.push({ id: 'ei_especial', title: '🙋 Pedir algo especial', description: 'Algo que no está en el menú — lo confirma el local' });
   rows.push({ id: 'ei_quitar', title: '🗑 Quitar este plato', description: 'Sacá este plato del pedido' });
   rows.push({ id: 'ei_volver', title: '↩ Volver', description: 'Volvé sin cambios' });
   return { tipo: 'list', text: `Editar: *${nombreItem(it)}*. ¿Qué cambiás?`, button: 'Opciones', sections: [{ title: 'Editar plato', rows }] };
+}
+// R3-4 (2026-06-30): cupo de acompañamientos GRATIS que le queda al ítem (normal = 2 − usados; especial = 0).
+function cupoLibreItem(it) {
+  if (it?.esEspecial) return 0;
+  return Math.max(0, 2 - ((it?.agregados ?? []).length));
+}
+// R3-4 — "Agregar algo más" a un plato ya armado. El PRECIO lo decide precios.js por posición (los normales
+// dentro del cupo de 2 van gratis; el resto $2.000; el especial no tiene cupo) → acá solo MOSTRAMOS la bajada
+// correcta. Reglas de UX: salida PRIMERO (R3-2b) y repetible (R3-3). Ids `ea_ac:i` / `ea_ex:i` (índice del menú).
+function renderEditAgregar(estado, menu) {
+  const it = estado.items[estado.editIdx];
+  const libre = cupoLibreItem(it); // normales gratis restantes (0 si especial o cupo lleno)
+  const ac = acompañamientos(menu);
+  const ex = extras(menu);
+  const opts = [];
+  ac.forEach((nombre, idx) => opts.push({ id: `ea_ac:${idx}`, title: String(nombre).slice(0, 24), description: libre > 0 ? 'Incluido' : `Especial ${clp(2000)}` }));
+  ex.forEach((e, idx) => opts.push({ id: `ea_ex:${idx}`, title: String(e.nombre).slice(0, 24), description: `Especial ${clp(e.precio)}` }));
+  const salida = { id: 'ea_listo', title: '✅ Listo', description: 'No agregar más' };
+  const rows = [salida, ...opts.slice(0, MAX_ROWS - 1)];
+  const cab = libre > 0
+    ? `¿Qué le sumás? (te queda${libre === 1 ? '' : 'n'} ${libre} gratis · extras ${clp(2000)})`
+    : `¿Qué le sumás? (cada uno ${clp(2000)})`;
+  return { tipo: 'list', text: cab, button: 'Ver opciones', sections: [{ title: 'Agregar al plato', rows }] };
 }
 // H3 — "Cambiar algo del plato": lista unificada de las partes del plato (componentes reemplazables del
 // especial + acompañamientos del menú del día). El id codifica el tipo (c=componente, a=acompañamiento) +
@@ -489,7 +513,7 @@ export function procesar(estado, input, menu) {
       const mx = id.match(/^ex:(\d+)$/);
       if (mx) {
         const ex = extras(menu)[Number(mx[1])];
-        if (ex && !e.actual.extras.includes(ex.nombre)) e.actual.extras.push(ex.nombre);
+        if (ex && e.actual.extras.length < MAX_ACOMP) e.actual.extras.push(ex.nombre); // R3-3: repetible (sin dedup)
         return { estado: e, salidas: [renderEspAgregar(menu, e.actual)] };
       }
       if (id === 'esp_listo') return avanzarTrasExtras(e, menu);
@@ -499,9 +523,9 @@ export function procesar(estado, input, menu) {
       const m = id.match(/^ex:(\d+)$/);
       if (m) {
         const ex = extras(menu)[Number(m[1])];
-        if (ex && !e.actual.extras.includes(ex.nombre)) e.actual.extras.push(ex.nombre);
+        if (ex && e.actual.extras.length < MAX_ACOMP) e.actual.extras.push(ex.nombre); // R3-3: repetible (sin dedup)
         const r = renderExtras(menu, e.actual);
-        return r ? { estado: e, salidas: [r] } : avanzarTrasExtras(e, menu); // sin más extras → avanzar
+        return r ? { estado: e, salidas: [r] } : avanzarTrasExtras(e, menu); // sin extras en el menú → avanzar
       }
       if (id === 'ex_no') return avanzarTrasExtras(e, menu);
       return reRender();
@@ -569,6 +593,7 @@ export function procesar(estado, input, menu) {
         e.paso = PASOS.EDIT_PARTE_FROM; return { estado: e, salidas: [renderEditParteFrom(e)] };
       }
       if (id === 'ei_bebida') { e.paso = PASOS.EDIT_BEBIDA; return { estado: e, salidas: [renderBebida(menu)] }; }
+      if (id === 'ei_agregar') { e.paso = PASOS.EDIT_AGREGAR; return { estado: e, salidas: [renderEditAgregar(e, menu)] }; }
       if (id === 'ei_especial') { e.paso = PASOS.EDIT_ESPECIAL_TXT; return { estado: e, salidas: [{ tipo: 'text', text: 'Escribime qué te gustaría que no está en el menú 🙂. Se lo paso al local y lo confirman antes de cerrar.' }] }; }
       if (id === 'ei_quitar') {
         if (e.editIdx != null) e.items.splice(e.editIdx, 1);
@@ -617,6 +642,25 @@ export function procesar(estado, input, menu) {
         const it = e.items[e.editIdx];
         if (it) it.bebida = m ? (bebidas(menu)[Number(m[1])] ?? null) : null;
         return vuelveEdicion(e, menu, 'Listo, cambié la bebida.');
+      }
+      return reRender();
+    }
+    case PASOS.EDIT_AGREGAR: {
+      // R3-4: sumar acompañamiento (ea_ac:i, cupo→gratis/$2.000 por posición en precios.js) o extra (ea_ex:i,
+      // siempre pagado). Repetible (R3-3). "Listo" cierra y vuelve al resumen.
+      if (id === 'ea_listo') return vuelveEdicion(e, menu, 'Listo, sumé lo que pediste.');
+      const it = e.items[e.editIdx];
+      const ma = id.match(/^ea_ac:(\d+)$/);
+      if (ma && it) {
+        const ac = acompañamientos(menu); const idx = Number(ma[1]);
+        if (idx >= 0 && idx < ac.length && (it.agregados = it.agregados || []).length < MAX_ACOMP) it.agregados.push(ac[idx]);
+        return { estado: e, salidas: [renderEditAgregar(e, menu)] };
+      }
+      const mx = id.match(/^ea_ex:(\d+)$/);
+      if (mx && it) {
+        const ex = extras(menu)[Number(mx[1])];
+        if (ex && (it.extras = it.extras || []).length < MAX_ACOMP) it.extras.push(ex.nombre);
+        return { estado: e, salidas: [renderEditAgregar(e, menu)] };
       }
       return reRender();
     }
@@ -683,6 +727,7 @@ function renderPaso(e, menu) {
     case PASOS.EDIT_PARTE_FROM: return renderEditParteFrom(e);
     case PASOS.EDIT_ACOMP_TO: return renderEditAcompTo(e, menu);
     case PASOS.EDIT_BEBIDA: return renderBebida(menu);
+    case PASOS.EDIT_AGREGAR: return renderEditAgregar(e, menu);
     case PASOS.EDIT_COMP_TO: return renderEditCompTo(e, menu);
     case PASOS.EDIT_ESPECIAL_TXT: return { tipo: 'text', text: 'Escribime qué querés (algo que no está en el menú).' };
     default: return { tipo: 'text', text: '🙂' };
@@ -717,10 +762,11 @@ export function renderMenuCliente(menu) {
   // Orden de secciones (ajuste UX QA 2026-06-29): el plato del día + sus componentes (acompañamientos,
   // bebida, extras) forman un bloque coherente; los ESPECIALES van AL FINAL como alternativa aparte.
   let t = `📋 *Menú de hoy*${menu.day_label ? ` — ${menu.day_label}` : ''}\n\n`;
-  t += `🍽️ *Plato del día* — ${clp(base)}\n_(incluye 2 acompañamientos + 1 bebida)_\n${prot}\n`;
-  t += `\n🥗 *Acompañamientos* (2 incluidos · extra ${clp(2000)} c/u):\n${puntos(incArr.length ? incArr : ['(consultar)'])}`;
-  t += `\n🥤 *Bebida incluida* (elegí una):\n${puntos(bebArr.length ? bebArr : ['incluida'])}`;
-  if (exArr.length) t += `\n➕ *Extras*:\n${puntos(exArr)}`;
+  t += `🍽️ *Plato del día* — ${clp(base)}\n_(incluye 2 acompañamientos + 1 bebida)_\n${prot}`;
+  // R3-1 (2026-06-30): línea en blanco (\n\n) ANTES de cada título de sección → las secciones respiran.
+  t += `\n\n🥗 *Acompañamientos* (2 incluidos · extra ${clp(2000)} c/u):\n${puntos(incArr.length ? incArr : ['(consultar)'])}`;
+  t += `\n\n🥤 *Bebida incluida* (elegí una):\n${puntos(bebArr.length ? bebArr : ['incluida'])}`;
+  if (exArr.length) t += `\n\n➕ *Extras*:\n${puntos(exArr)}`;
   if (esp) t += `\n\n⭐ *Especiales* (platos aparte, precio propio)\n${esp}`;
   t += `\n\nArmemos tu pedido tocando los botones 👇`;
   return { tipo: 'text', text: t };

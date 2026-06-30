@@ -93,6 +93,19 @@ export function dedupConteo(nombres) {
   return out.map((o) => (o.n > 1 ? `${o.nombre} x${o.n}` : o.nombre));
 }
 
+// R3-3 (2026-06-30): agrupa ítems PAGADOS por nombre → [{nombre, n, precio}] (precio unitario; total = precio×n).
+// Conserva el ORDEN de primera aparición. Para consolidar "Tostones al ajillo x2 — $4.000" en resumen y board.
+export function agruparPagos(items) {
+  const out = []; const pos = new Map();
+  for (const it of (Array.isArray(items) ? items : [])) {
+    const nombre = String(it?.nombre ?? ''); const precio = Number(it?.precio) || 0;
+    if (!nombre) continue;
+    if (pos.has(nombre)) out[pos.get(nombre)].n++;
+    else { pos.set(nombre, out.length); out.push({ nombre, n: 1, precio }); }
+  }
+  return out;
+}
+
 export function calcularPedido(items, tipo, menuActivo, fallback) {
   const lineas = (Array.isArray(items) ? items : []).map((it) => calcularItem(it, menuActivo, fallback));
   const subtotales = lineas.reduce((a, l) => a + l.subtotal, 0);
@@ -119,8 +132,9 @@ export function construirResumen(calc, extrasPedido = []) {
       for (const c of l.componentes.filter((c) => c.costo)) out += `\n   · ${c.nombre} — ${clp(c.costo)}`;
     }
     if (l.bebida) out += `\n   · ${String(l.bebida).replace(/\s+natural$/i, '').trim()} (incluido)`;
-    for (const a of l.agregadosPagos) out += `\n   · ${a} — ${clp(EXTRA_DEFAULT)}`;
-    for (const e of l.extras) out += `\n   · ${e.nombre} — ${clp(e.precio)}`;
+    // R3-3: consolidar cantidades múltiples de pagados → "Tostones al ajillo x2 — $4.000".
+    for (const g of agruparPagos(l.agregadosPagos.map((a) => ({ nombre: a, precio: EXTRA_DEFAULT })))) out += `\n   · ${g.nombre}${g.n > 1 ? ` x${g.n}` : ''} — ${clp(g.precio * g.n)}`;
+    for (const g of agruparPagos(l.extras)) out += `\n   · ${g.nombre}${g.n > 1 ? ` x${g.n}` : ''} — ${clp(g.precio * g.n)}`;
     // R2-6: destacar TODA sustitución del plato estándar (la cocina debe verlo).
     for (const c of (l.cambios || [])) out += `\n   ✏️ Cambiaste: ${c.de} → ${c.a}`;
     if (l.modificaciones) out += `\n   _(${l.modificaciones})_`;
