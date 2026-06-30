@@ -1,42 +1,39 @@
-// Feature 2026-06-22: platos especiales con agregados INCLUIDOS configurables (cupo propio).
-// Reglas: cambiar/quitar un incluido = gratis; añadir más allá del cupo = $2.000 c/u.
-// Verifica calcularItem (núcleo determinista). Uso: node qa-harness/test-especial-incluidos-unit.mjs
+// Modelo VIGENTE del especial (B1+H4, 2026-06-30 — reforzado por R2-4/R2-5): el especial tiene composición
+// FIJA en `componentes` (costo 0, ya en el precio); cualquier `agregado` que el cliente sume es un EXTRA
+// PAGADO ($2.000 c/u). Un componente sustituido por un ítem pagado suma su costo. Verifica calcularItem
+// (núcleo determinista). Uso: node qa-harness/test-especial-incluidos-unit.mjs
+//
+// NOTA: este test reemplaza al viejo "agregados_incluidos como cupo gratis sobre agregados[]" — ese modelo
+// fue descartado (la composición ya no se elige como "2 gratis del día", viaja en `componentes`).
 import { calcularItem } from '../src/precios.js';
 
 let pass = 0, fail = 0;
 const check = (n, c, got) => { if (c) { pass++; console.log('  ✅ ' + n); } else { fail++; console.log(`  ❌ ${n} (obtuvo ${got})`); } };
 
-// Especial $9.000 con 2 incluidos (puré + ensalada).
 const menu = {
   price_typical: 7000,
-  platos_especiales: [{ nombre: 'Pabellón criollo', precio: 9000, agregados_incluidos: ['puré', 'ensalada'] }],
-  extras_pagados: [],
+  platos_especiales: [{ nombre: 'Pabellón criollo', precio: 9000, agregados_incluidos: ['Arroz', 'Tajadas'], componentes: [{ nombre: 'porotos negros', reemplazable: true }] }],
+  extras_pagados: [{ nombre: 'papas', precio: 2000 }, { nombre: 'tostones', precio: 2000 }],
 };
 const sub = (item) => calcularItem(item, menu, null).subtotal;
 
-// 1. Pedirlo tal cual (sus 2 incluidos) → $9.000.
-check('tal cual (puré+ensalada) → $9.000', sub({ proteina: 'Pabellón criollo', agregados: ['puré', 'ensalada'] }) === 9000, sub({ proteina: 'Pabellón criollo', agregados: ['puré', 'ensalada'] }));
-// 2. Cambiar puré→papas (misma cantidad) → $9.000.
-check('cambiar puré→papas → $9.000', sub({ proteina: 'Pabellón criollo', agregados: ['papas', 'ensalada'] }) === 9000, sub({ proteina: 'Pabellón criollo', agregados: ['papas', 'ensalada'] }));
-// 3. Quitar ensalada (menos) → $9.000 (no descuenta).
-check('quitar ensalada → $9.000 (no descuenta)', sub({ proteina: 'Pabellón criollo', agregados: ['puré'] }) === 9000, sub({ proteina: 'Pabellón criollo', agregados: ['puré'] }));
-// 4. Añadir un 3er agregado → $9.000 + $2.000 = $11.000.
-check('añadir 3ro → $11.000', sub({ proteina: 'Pabellón criollo', agregados: ['puré', 'ensalada', 'papas'] }) === 11000, sub({ proteina: 'Pabellón criollo', agregados: ['puré', 'ensalada', 'papas'] }));
-// 4b. Añadir DOS de más → $9.000 + $4.000 = $13.000.
-check('añadir 2 de más → $13.000', sub({ proteina: 'Pabellón criollo', agregados: ['puré', 'ensalada', 'papas', 'tostones'] }) === 13000, sub({ proteina: 'Pabellón criollo', agregados: ['puré', 'ensalada', 'papas', 'tostones'] }));
+// 1. Especial solo (sin agregados extra) → $9.000.
+check('especial solo → $9.000', sub({ proteina: 'Pabellón criollo' }) === 9000, sub({ proteina: 'Pabellón criollo' }));
+// 2. Composición fija en `componentes` (costo 0) → NO suma → $9.000.
+const comp = [{ nombre: 'Arroz', costo: 0 }, { nombre: 'Tajadas', costo: 0 }, { nombre: 'porotos negros', costo: 0 }];
+check('componentes incluidos (costo 0) → $9.000', sub({ proteina: 'Pabellón criollo', componentes: comp }) === 9000, sub({ proteina: 'Pabellón criollo', componentes: comp }));
+// 3. Un acompañamiento EXTRA (paso combinado R2-4) = pagado → $11.000.
+check('+1 acompañamiento extra ($2.000) → $11.000', sub({ proteina: 'Pabellón criollo', componentes: comp, agregados: ['Arroz'] }) === 11000, sub({ proteina: 'Pabellón criollo', componentes: comp, agregados: ['Arroz'] }));
+// 4. DOS extras (acompañamiento + extra) → $13.000.
+check('+2 extras → $13.000', sub({ proteina: 'Pabellón criollo', componentes: comp, agregados: ['Arroz'], extras: ['papas'] }) === 13000, sub({ proteina: 'Pabellón criollo', componentes: comp, agregados: ['Arroz'], extras: ['papas'] }));
+// 5. Componente sustituido por un pagado (porotos → papas, costo 2000) → suma $2.000 → $11.000.
+const compSust = [{ nombre: 'Arroz', costo: 0 }, { nombre: 'Tajadas', costo: 0 }, { nombre: 'papas', costo: 2000 }];
+check('componente → pagado ($2.000) → $11.000', sub({ proteina: 'Pabellón criollo', componentes: compSust }) === 11000, sub({ proteina: 'Pabellón criollo', componentes: compSust }));
 
-// 5. Retrocompat: especial SIN agregados_incluidos → cupo 0, todo agregado paga (como hoy).
-const menuViejo = { price_typical: 7000, platos_especiales: [{ nombre: 'Albacora', precio: 9000 }], extras_pagados: [] };
-check('retrocompat (sin incluidos): 1 agregado paga → $11.000',
-  calcularItem({ proteina: 'Albacora', agregados: ['puré'] }, menuViejo, null).subtotal === 11000,
-  calcularItem({ proteina: 'Albacora', agregados: ['puré'] }, menuViejo, null).subtotal);
-check('retrocompat: especial solo (sin agregados) → $9.000',
-  calcularItem({ proteina: 'Albacora', agregados: [] }, menuViejo, null).subtotal === 9000,
-  calcularItem({ proteina: 'Albacora', agregados: [] }, menuViejo, null).subtotal);
-
-// 6. No romper el menú normal: $7.000 con 2 incluidos gratis + 3º a $2.000.
+// 6. No romper el menú NORMAL: $7.000 con 2 incluidos gratis; el 3º (vía edición) suma $2.000 (precios.js
+// mantiene el cálculo robusto aunque el FLUJO ya no ofrezca un 3er acompañamiento — R2-5).
 check('menú normal: 2 agregados gratis → $7.000', sub({ proteina: 'Pollo', agregados: ['arroz', 'puré'] }) === 7000, sub({ proteina: 'Pollo', agregados: ['arroz', 'puré'] }));
-check('menú normal: 3er agregado → $9.000', sub({ proteina: 'Pollo', agregados: ['arroz', 'puré', 'papas'] }) === 9000, sub({ proteina: 'Pollo', agregados: ['arroz', 'puré', 'papas'] }));
+check('menú normal: 3er agregado (robustez) → $9.000', sub({ proteina: 'Pollo', agregados: ['arroz', 'puré', 'papas'] }) === 9000, sub({ proteina: 'Pollo', agregados: ['arroz', 'puré', 'papas'] }));
 
-console.log(`\n=== ESPECIAL INCLUIDOS UNIT: ${pass} OK, ${fail} FAIL ===`);
+console.log(`\n=== ESPECIAL (modelo vigente) UNIT: ${pass} OK, ${fail} FAIL ===`);
 process.exit(fail ? 1 : 0);

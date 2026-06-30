@@ -75,8 +75,22 @@ export function calcularItem(item, menuActivo, fallback) {
     extras,
     bebida: item.bebida ?? null,
     modificaciones: (item.modificaciones ?? '').trim(),
+    // R2-6 (2026-06-30): sustituciones del cliente respecto del plato estándar — se DESTACAN en el resumen y
+    // en el board (la cocina no debe preparar "como siempre" cuando hubo variación).
+    cambios: (Array.isArray(item.cambios) ? item.cambios : []).filter((c) => c && c.de && c.a),
     subtotal,
   };
+}
+
+// R2-6: consolida duplicados de una lista de nombres → "Arroz, Tajadas x2" (la cocina ve cantidades claras).
+export function dedupConteo(nombres) {
+  const out = []; const pos = new Map();
+  for (const raw of (Array.isArray(nombres) ? nombres : [])) {
+    const k = String(raw);
+    if (pos.has(k)) out[pos.get(k)].n++;
+    else { pos.set(k, out.length); out.push({ nombre: k, n: 1 }); }
+  }
+  return out.map((o) => (o.n > 1 ? `${o.nombre} x${o.n}` : o.nombre));
 }
 
 export function calcularPedido(items, tipo, menuActivo, fallback) {
@@ -95,17 +109,20 @@ const clp = (n) => '$' + Number(n).toLocaleString('es-CL');
 export function construirResumen(calc, extrasPedido = []) {
   let out = '📋 *Tu pedido:*';
   for (const l of calc.lineas) {
-    const desc = l.agregadosIncluidos.length ? ` con ${l.agregadosIncluidos.join(', ')}` : '';
+    // R2-6: consolidar duplicados en la composición ("Tajadas x2" en vez de "Tajadas, Tajadas").
+    const desc = l.agregadosIncluidos.length ? ` con ${dedupConteo(l.agregadosIncluidos).join(', ')}` : '';
     out += `\n\n• *${l.proteina}*${desc} — ${clp(l.base)}`;
     // Componentes del especial componible: los incluidos (costo 0) en una línea; los sustituidos por pagado, con su costo.
     if (l.componentes && l.componentes.length) {
       const incl = l.componentes.filter((c) => !c.costo).map((c) => c.nombre);
-      if (incl.length) out += `\n   viene con: ${incl.join(', ')}`;
+      if (incl.length) out += `\n   viene con: ${dedupConteo(incl).join(', ')}`;
       for (const c of l.componentes.filter((c) => c.costo)) out += `\n   · ${c.nombre} — ${clp(c.costo)}`;
     }
     if (l.bebida) out += `\n   · ${String(l.bebida).replace(/\s+natural$/i, '').trim()} (incluido)`;
     for (const a of l.agregadosPagos) out += `\n   · ${a} — ${clp(EXTRA_DEFAULT)}`;
     for (const e of l.extras) out += `\n   · ${e.nombre} — ${clp(e.precio)}`;
+    // R2-6: destacar TODA sustitución del plato estándar (la cocina debe verlo).
+    for (const c of (l.cambios || [])) out += `\n   ✏️ Cambiaste: ${c.de} → ${c.a}`;
     if (l.modificaciones) out += `\n   _(${l.modificaciones})_`;
     out += `\n   Subtotal: ${clp(l.subtotal)}`;
   }

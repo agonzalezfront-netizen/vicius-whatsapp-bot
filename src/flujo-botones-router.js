@@ -12,6 +12,30 @@ import {
 import { enviarPushEquipo } from './push.js';
 import { escalarAHumano } from './comunicaciones-client.js';
 
+// R2-9 (2026-06-30): resuelve los datos bancarios de transferencia. SIEMPRE de la env var SAZON_TRANSFER_INFO
+// (son datos del cliente, NO van en el repo), con fallback al menu.datos_transferencia si está configurado.
+// Espeja la lógica del flujo premium (claude.js). Devuelve null si NO hay datos → el caller NO inventa.
+export function resolverDatosTransferencia(menu) {
+  const env = (process.env.SAZON_TRANSFER_INFO ?? '').trim();
+  if (env) return env;
+  const dt = menu?.datos_transferencia ?? {};
+  if (dt.configurado && typeof dt.texto === 'string' && dt.texto.trim()) return dt.texto.trim();
+  return null;
+}
+// Tras el cierre por transferencia, manda los datos bancarios reales. La máquina pura (flujo-botones) no lee
+// env/IO → este efecto vive en el router. Si no están configurados: aviso honesto + escala (NO inventa datos).
+async function enviarDatosTransferencia(sock, jid, menu, logger) {
+  const datos = resolverDatosTransferencia(menu);
+  if (datos) {
+    await sock.sendMessage(jid, { text: `${datos}\n\nApenas envíes el comprobante, lo validamos 🙂` })
+      .catch((e) => logger?.warn?.({ jid, err: e.message }, 'R2-9: enviar datos de transferencia falló'));
+    return;
+  }
+  logger?.error?.({ jid }, 'R2-9: datos de transferencia NO configurados (sin SAZON_TRANSFER_INFO ni menu) → aviso honesto + escalo');
+  await sock.sendMessage(jid, { text: 'Déjame confirmar los datos de transferencia con el local y te los paso en un momento 🙏' }).catch(() => {});
+  escalarAHumano(jid, 'datos-transferencia-no-configurados').catch(() => {});
+}
+
 // Traduce una "salida" abstracta de la máquina al payload de sock.sendMessage.
 function payloadDe(salida) {
   if (salida.tipo === 'list') return { text: salida.text, sections: salida.sections, button: salida.button };
@@ -107,6 +131,8 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
 
   await persistir(jid, r.estado, logger); // no-fatal: un 5xx del wizard no debe tragarse la respuesta
   await enviar(sock, jid, r.salidas);
+  // R2-9: si el pedido se confirmó con pago por transferencia, enviar los datos bancarios reales tras el cierre.
+  if (r.pedido?.metodo_pago === 'transferencia') await enviarDatosTransferencia(sock, jid, menu, logger);
   // Si el cliente escribió algo no reconocido 2 veces seguidas → la máquina pide escalar (duda).
   if (r.escalar) {
     escalarAHumano(jid, 'consulta-tier-basico').catch(() => {});
