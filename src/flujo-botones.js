@@ -48,7 +48,7 @@ function pagedRows(items, idPrefix, offset = 0, mapRow) {
 
 // ── estado inicial ───────────────────────────────────────────────────────────
 export function estadoInicial() {
-  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0, editIdx: null, editAcompIdx: null, editCompIdx: null, solicitud: null };
+  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0, editIdx: null, editAcompIdx: null, editCompIdx: null, solicitud: null, editReturn: null };
 }
 function nuevoItem() { return { proteina: null, esEspecial: false, agregados: [], bebida: null, extras: [], componentes: [] }; }
 
@@ -110,25 +110,48 @@ function renderBebida(menu) {
   btns.push({ id: 'beb_no', title: 'Sin bebida' });
   return { tipo: 'buttons', text: '¿Qué bebida? (incluida) 🥤', buttons: btns.slice(0, 3) };
 }
-// Muestra los extras con precio EN EL TEXTO (ajuste UX QA 2026-06-29): el cliente ve qué hay y cuánto cuesta
-// antes de decidir, sin tener que tocar "Agregar extra". La lista interactiva al tocar el botón queda igual.
-function botonesExtrasAsk(menu) {
-  const ex = extras(menu);
-  const lista = ex.length ? '\n' + ex.map((e) => `· ${e.nombre} — ${clp(e.precio)}`).join('\n') : '';
-  return { tipo: 'buttons', text: `¿Quieres agregar algún extra pagado?${lista}`,
-    buttons: [{ id: 'ex_add', title: '➕ Agregar extra' }, { id: 'ex_no', title: 'No, seguir' }] };
+// Paso de extras — selección DIRECTA según cantidad, sin iteración intermedia (UX QA 2026-06-29 §item1):
+// 0 extras → el caller saltea el paso; 1-2 → reply buttons directos (extra(s) + "No, seguir"); ≥3 → List
+// "Ver extras" (extras + "No, seguir" como última fila). El cliente toca el extra al toque, sin abrir una
+// 2ª lista. Devuelve null si no quedan extras por ofrecer (→ el caller avanza). Los ids usan el índice
+// ORIGINAL del menú (precios.js los matchea por índice).
+function extrasDisponibles(menu, actual) {
+  const tomados = new Set(actual?.extras ?? []);
+  return extras(menu).map((e, idx) => ({ ...e, idx })).filter((e) => !tomados.has(e.nombre));
 }
-function renderExtrasList(menu, offset = 0) {
-  const ex = extras(menu);
-  const rows = pagedRows(ex, 'ex', offset, (e, idx) => ({ id: `ex:${idx}`, title: String(e.nombre).slice(0, 24), description: clp(e.precio) }));
-  return { tipo: 'list', text: 'Elige un extra:', button: 'Extras', sections: [{ title: 'Extras pagados', rows }] };
+function renderExtras(menu, actual) {
+  const rem = extrasDisponibles(menu, actual);
+  if (!rem.length) return null; // nada que ofrecer → avanzar
+  const yaTiene = (actual?.extras ?? []).length > 0;
+  const txt = yaTiene ? '¿Otro extra?' : '¿Querés agregar un extra? (opcional)';
+  const salir = { id: 'ex_no', title: yaTiene ? '✅ Listo' : 'No, seguir' };
+  if (rem.length <= 2) {
+    const btns = rem.map((e) => ({ id: `ex:${e.idx}`, title: `${e.nombre} ${clp(e.precio)}`.slice(0, 20) }));
+    btns.push(salir);
+    return { tipo: 'buttons', text: txt, buttons: btns.slice(0, 3) };
+  }
+  const rows = rem.slice(0, 9).map((e) => ({ id: `ex:${e.idx}`, title: String(e.nombre).slice(0, 24), description: clp(e.precio) }));
+  rows.push({ id: 'ex_no', title: salir.title });
+  return { tipo: 'list', text: txt, button: 'Ver extras', sections: [{ title: 'Extras pagados', rows }] };
 }
-function botonesExtraMas() {
-  return { tipo: 'buttons', text: '¿Otro extra?', buttons: [{ id: 'ex_mas', title: '➕ Otro' }, { id: 'ex_listo', title: '✅ Listo' }] };
+// Entra al paso de extras (o lo saltea si el menú no tiene extras).
+function entrarExtras(e, menu) {
+  e.paso = PASOS.EXTRAS;
+  const r = renderExtras(menu, e.actual);
+  return r ? { estado: e, salidas: [r] } : avanzarTrasExtras(e, menu);
 }
-function botonesMasMenus() {
-  return { tipo: 'buttons', text: '¿Agregar otro menú o seguir?',
-    buttons: [{ id: 'mm_otro', title: '➕ Otro menú' }, { id: 'mm_seguir', title: '✅ Seguir' }] };
+// Cierra el ítem actual y va a "¿otro menú o seguir?" (o modalidad si llegó al tope de ítems).
+function avanzarTrasExtras(e, menu) {
+  e.items.push(e.actual); e.actual = nuevoItem();
+  if (e.items.length >= MAX_ITEMS) { e.paso = PASOS.MODALIDAD; return { estado: e, salidas: [botonesModalidad()] }; }
+  e.paso = PASOS.MAS_MENUS; return { estado: e, salidas: [renderMasMenus(e, menu)] };
+}
+// Paso "¿otro menú o seguir?" con RESUMEN PARCIAL + Editar (UX 2026-06-29 §7): muestra lo que lleva + total
+// parcial, y deja editar (reusa EDIT_PICK de la Fase A) antes de avanzar. 3 botones (cabe en reply buttons).
+function renderMasMenus(e, menu) {
+  const calc = calcularPedido(e.items, e.tipo, menu, null);
+  return { tipo: 'buttons', text: `${construirResumen(calc)}\n\n¿Agregar otro menú, editar, o seguir?`,
+    buttons: [{ id: 'mm_otro', title: '➕ Otro menú' }, { id: 'mm_editar', title: '✏️ Editar' }, { id: 'mm_seguir', title: '✅ Seguir' }] };
 }
 function botonesModalidad() {
   return { tipo: 'buttons', text: '¿Cómo lo quieres?',
@@ -149,16 +172,37 @@ function botonesPago(tipo) {
 }
 function renderResumen(estado, menu) {
   const calc = calcularPedido(estado.items, estado.tipo, menu, null);
-  // Solicitud fuera-de-carta (pieza 2 FASE B): si está APLICADA, suma al total; si está PENDIENTE, se muestra
-  // aparte y los botones cambian a "seguir sin eso" / "esperar" (no congela; gap 1).
   const sol = estado.solicitud;
+  const dirTxt = estado.tipo === 'delivery' && estado.direccion ? `\n\n🛵 ${estado.direccion}` : '';
+  // Solicitud fuera-de-carta PENDIENTE (UX 2026-06-29 §8): "esperar" es el default (va en TEXTO, no botón) y
+  // NO hay "¿Confirmamos?" (no se puede confirmar con el costo pendiente). Botones = SOLO acciones reales.
+  // El [✅ Confirmar] aparece DESPUÉS, cuando el local resuelve (panel B-3) y el bot re-emite el resumen.
+  if (sol && sol.status === 'pendiente') {
+    const txt = construirResumen(calc) + dirTxt
+      + `\n\n⏳ Tu pedido especial ("${sol.descripcion}") quedó pendiente: el local lo revisa y te confirma el costo en un momento. Te aviso apenas esté. Mientras, podés agregar otro plato, editar, o seguir sin ese ajuste.`;
+    return { calc, salida: { tipo: 'buttons', text: txt, buttons: [
+      { id: 'mm_otro', title: '➕ Otro menú' },
+      { id: 'conf_editar', title: '✏️ Editar' },
+      { id: 'conf_sin_ajuste', title: '🗑️ Sin el especial' },
+    ] } };
+  }
+  // Solicitud APLICADA → suma al total. Sin solicitud → resumen normal.
   const extrasPedido = (sol && sol.status === 'aplicado') ? [{ nombre: `🙋 ${sol.descripcion}`, costo: Number(sol.costo) || 0 }] : [];
-  let txt = construirResumen(calc, extrasPedido) + (estado.tipo === 'delivery' && estado.direccion ? `\n\n🛵 ${estado.direccion}` : '');
-  if (sol && sol.status === 'pendiente') txt += `\n\n⏳ Pedido especial: "${sol.descripcion}" — pendiente de confirmar el local.`;
-  const buttons = (sol && sol.status === 'pendiente')
-    ? [{ id: 'conf_sin_ajuste', title: '✅ Seguir sin eso' }, { id: 'conf_esperar', title: '⏳ Esperar' }, { id: 'conf_editar', title: '✏️ Editar' }]
-    : [{ id: 'conf_si', title: '✅ Confirmar' }, { id: 'conf_editar', title: '✏️ Editar' }, { id: 'conf_reset', title: '🔄 Empezar de nuevo' }];
-  return { calc, salida: { tipo: 'buttons', text: txt + '\n\n¿Confirmamos?', buttons } };
+  const txt = construirResumen(calc, extrasPedido) + dirTxt;
+  return { calc, salida: { tipo: 'buttons', text: txt + '\n\n¿Confirmamos?', buttons: [
+    { id: 'conf_si', title: '✅ Confirmar' }, { id: 'conf_editar', title: '✏️ Editar' }, { id: 'conf_reset', title: '🔄 Empezar de nuevo' },
+  ] } };
+}
+
+// El flujo de edición (Fase A) se entra desde el resumen final (CONFIRMAR) o desde "¿otro menú?" (MAS_MENUS,
+// §7). Al volver, regresa al PUNTO DE ENTRADA — no siempre a CONFIRMAR (eso saltaría modalidad/pago). El
+// origen vive en estado.editReturn; este helper setea el paso destino, limpia el flag y arma la salida.
+function vuelveEdicion(e, menu, textoPrefijo) {
+  const aMasMenus = e.editReturn === PASOS.MAS_MENUS;
+  e.editReturn = null;
+  e.paso = aMasMenus ? PASOS.MAS_MENUS : PASOS.CONFIRMAR;
+  const salida = aMasMenus ? renderMasMenus(e, menu) : renderResumen(e, menu).salida;
+  return { estado: e, salidas: textoPrefijo ? [{ tipo: 'text', text: textoPrefijo }, salida] : [salida] };
 }
 
 // ── edición granular (pieza 2 FASE A): editar un plato del pedido sin re-armarlo ────────────────
@@ -300,11 +344,11 @@ export function matchTexto(paso, texto, menu) {
       const i = _idxEnLista(texto, extras(menu).map((e) => e.nombre));
       if (i >= 0) return `ex:${i}`;
       if (_algunaPalabra(t, ['listo', 'ninguno', 'no', 'nada', 'seguir', 'eso es todo'])) return 'ex_no';
-      if (_algunaPalabra(t, ['otro', 'agregar', 'mas', 'más', 'si', 'sí', 'quiero'])) return 'ex_add';
-      return null;
+      return null; // los extras se eligen por su nombre (botones directos); ya no hay "agregar" genérico
     }
     case PASOS.MAS_MENUS: {
-      if (_algunaPalabra(t, ['otro', 'agregar', 'mas', 'más', 'si', 'sí', 'sumar'])) return 'mm_otro';
+      if (_algunaPalabra(t, ['otro', 'agregar', 'mas', 'más', 'sumar'])) return 'mm_otro';
+      if (_algunaPalabra(t, ['editar', 'cambiar', 'corregir', 'modificar'])) return 'mm_editar';
       if (_algunaPalabra(t, ['seguir', 'no', 'listo', 'eso es todo', 'nada mas', 'continuar'])) return 'mm_seguir';
       return null;
     }
@@ -410,25 +454,24 @@ export function procesar(estado, input, menu) {
     }
     case PASOS.BEBIDA: {
       const m = id.match(/^beb:(\d+)$/);
-      if (m) { e.actual.bebida = bebidas(menu)[Number(m[1])] ?? null; e.paso = PASOS.EXTRAS; return { estado: e, salidas: [botonesExtrasAsk(menu)] }; }
-      if (id === 'beb_no') { e.actual.bebida = null; e.paso = PASOS.EXTRAS; return { estado: e, salidas: [botonesExtrasAsk(menu)] }; }
+      if (m) { e.actual.bebida = bebidas(menu)[Number(m[1])] ?? null; return entrarExtras(e, menu); }
+      if (id === 'beb_no') { e.actual.bebida = null; return entrarExtras(e, menu); }
       return reRender();
     }
     case PASOS.EXTRAS: {
-      if (id === 'ex_add' || id === 'ex_mas') return { estado: e, salidas: [renderExtrasList(menu)] };
-      const mMore = id.match(/^ex:more:(\d+)$/);
-      if (mMore) return { estado: e, salidas: [renderExtrasList(menu, Number(mMore[1]))] };
       const m = id.match(/^ex:(\d+)$/);
-      if (m) { const ex = extras(menu)[Number(m[1])]; if (ex) e.actual.extras.push(ex.nombre); return { estado: e, salidas: [botonesExtraMas()] }; }
-      if (id === 'ex_no' || id === 'ex_listo') {
-        e.items.push(e.actual); e.actual = nuevoItem();
-        if (e.items.length >= MAX_ITEMS) { e.paso = PASOS.MODALIDAD; return { estado: e, salidas: [botonesModalidad()] }; }
-        e.paso = PASOS.MAS_MENUS; return { estado: e, salidas: [botonesMasMenus()] };
+      if (m) {
+        const ex = extras(menu)[Number(m[1])];
+        if (ex && !e.actual.extras.includes(ex.nombre)) e.actual.extras.push(ex.nombre);
+        const r = renderExtras(menu, e.actual);
+        return r ? { estado: e, salidas: [r] } : avanzarTrasExtras(e, menu); // sin más extras → avanzar
       }
+      if (id === 'ex_no') return avanzarTrasExtras(e, menu);
       return reRender();
     }
     case PASOS.MAS_MENUS: {
       if (id === 'mm_otro') { e.paso = PASOS.PROTEINA; return { estado: e, salidas: [renderProteina(menu)] }; }
+      if (id === 'mm_editar') { e.editReturn = PASOS.MAS_MENUS; e.paso = PASOS.EDIT_PICK; return { estado: e, salidas: [renderEditPick(e)] }; }
       if (id === 'mm_seguir') { e.paso = PASOS.MODALIDAD; return { estado: e, salidas: [botonesModalidad()] }; }
       return reRender();
     }
@@ -458,12 +501,13 @@ export function procesar(estado, input, menu) {
     }
     case PASOS.CONFIRMAR: {
       if (id === 'conf_si') { e.paso = PASOS.FIN; return { estado: e, salidas: [{ tipo: 'text', text: cierreTexto(e) }], pedido: armarPedido(e, menu) }; }
-      if (id === 'conf_editar') { e.paso = PASOS.EDIT_PICK; return { estado: e, salidas: [renderEditPick(e)] }; }
+      if (id === 'conf_editar') { e.editReturn = PASOS.CONFIRMAR; e.paso = PASOS.EDIT_PICK; return { estado: e, salidas: [renderEditPick(e)] }; }
       if (id === 'conf_reset') { e.paso = PASOS.RESET_CONFIRM; return { estado: e, salidas: [botonesResetConfirm()] }; }
-      // Solicitud fuera-de-carta pendiente: "seguir sin eso" = descartar el ajuste y confirmar ya;
-      // "esperar" = re-render (el router ya reconcilió al cargar; si el local respondió, ahora muestra Confirmar).
+      // Ajuste especial PENDIENTE (§8): "Agregar otro menú" aprovecha la espera del local armando otro plato
+      // (el ajuste sigue pendiente al volver al resumen); "Seguir sin el especial" descarta el ajuste y cierra.
+      if (id === 'mm_otro') { e.paso = PASOS.PROTEINA; return { estado: e, salidas: [renderProteina(menu)] }; }
       if (id === 'conf_sin_ajuste') { e.solicitud = null; e.paso = PASOS.FIN; return { estado: e, salidas: [{ tipo: 'text', text: cierreTexto(e) }], pedido: armarPedido(e, menu) }; }
-      if (id === 'conf_esperar') { return { estado: e, salidas: [renderResumen(e, menu).salida] }; }
+      if (id === 'conf_esperar') { return { estado: e, salidas: [renderResumen(e, menu).salida] }; } // defensivo (botón removido §8)
       return reRender();
     }
     case PASOS.RESET_CONFIRM: {
@@ -474,13 +518,13 @@ export function procesar(estado, input, menu) {
     case PASOS.EDIT_PICK: {
       const mMore = id.match(/^ep:more:(\d+)$/);
       if (mMore) return { estado: e, salidas: [renderEditPick(e, Number(mMore[1]))] };
-      if (id === 'ep_volver') { e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [renderResumen(e, menu).salida] }; }
+      if (id === 'ep_volver') return vuelveEdicion(e, menu);
       const m = id.match(/^ep:(\d+)$/);
       if (m) { const idx = Number(m[1]); if (idx >= 0 && idx < e.items.length) { e.editIdx = idx; e.paso = PASOS.EDIT_ITEM; return { estado: e, salidas: [renderEditItem(e, menu)] }; } }
       return reRender();
     }
     case PASOS.EDIT_ITEM: {
-      if (id === 'ei_volver') { e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [renderResumen(e, menu).salida] }; }
+      if (id === 'ei_volver') return vuelveEdicion(e, menu);
       if (id === 'ei_comp') {
         const it = e.items[e.editIdx];
         if (!it || !(it.componentes || []).some((c) => c.reemplazable)) return { estado: e, salidas: [renderEditItem(e, menu)] };
@@ -497,7 +541,7 @@ export function procesar(estado, input, menu) {
         if (e.editIdx != null) e.items.splice(e.editIdx, 1);
         e.editIdx = null;
         if (!e.items.length) { const ne = estadoInicial(); return { estado: ne, salidas: [{ tipo: 'text', text: 'Quité el plato y quedó vacío el pedido. Armemos uno nuevo 🙂' }, renderProteina(menu)] }; }
-        e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [{ tipo: 'text', text: 'Listo, quité el plato.' }, renderResumen(e, menu).salida] };
+        return vuelveEdicion(e, menu, 'Listo, quité el plato.');
       }
       return reRender();
     }
@@ -517,8 +561,8 @@ export function procesar(estado, input, menu) {
         if (it && idx >= 0 && idx < ac.length && e.editAcompIdx != null && e.editAcompIdx < (it.agregados || []).length) {
           it.agregados[e.editAcompIdx] = ac[idx]; // sustitución Nivel 1; calcularItem recalcula el costo
         }
-        e.editAcompIdx = null; e.paso = PASOS.CONFIRMAR;
-        return { estado: e, salidas: [{ tipo: 'text', text: 'Listo, cambié el acompañamiento.' }, renderResumen(e, menu).salida] };
+        e.editAcompIdx = null;
+        return vuelveEdicion(e, menu, 'Listo, cambié el acompañamiento.');
       }
       return reRender();
     }
@@ -527,7 +571,7 @@ export function procesar(estado, input, menu) {
       if (m || id === 'beb_no') {
         const it = e.items[e.editIdx];
         if (it) it.bebida = m ? (bebidas(menu)[Number(m[1])] ?? null) : null;
-        e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [{ tipo: 'text', text: 'Listo, cambié la bebida.' }, renderResumen(e, menu).salida] };
+        return vuelveEdicion(e, menu, 'Listo, cambié la bebida.');
       }
       return reRender();
     }
@@ -547,8 +591,8 @@ export function procesar(estado, input, menu) {
         if (it && opts[idx] && e.editCompIdx != null && it.componentes[e.editCompIdx]) {
           it.componentes[e.editCompIdx] = { ...it.componentes[e.editCompIdx], nombre: opts[idx].nombre, costo: opts[idx].costo }; // incluido→incluido gratis; →pagado suma
         }
-        e.editCompIdx = null; e.paso = PASOS.CONFIRMAR;
-        return { estado: e, salidas: [{ tipo: 'text', text: 'Listo, cambié el componente.' }, renderResumen(e, menu).salida] };
+        e.editCompIdx = null;
+        return vuelveEdicion(e, menu, 'Listo, cambié el componente.');
       }
       return reRender();
     }
@@ -559,12 +603,8 @@ export function procesar(estado, input, menu) {
         const plato = nombreItem(e.items[e.editIdx]);
         const descripcion = texto.slice(0, 300);
         e.solicitud = { id: null, plato, descripcion, status: 'pendiente', costo: null };
-        e.paso = PASOS.CONFIRMAR;
-        return {
-          estado: e,
-          salidas: [{ tipo: 'text', text: 'Le paso tu pedido especial al local 🙂. Seguimos armando el resto y lo confirman antes de cerrar.' }, renderResumen(e, menu).salida],
-          crearSolicitud: { plato, descripcion },
-        };
+        const r = vuelveEdicion(e, menu, 'Le paso tu pedido especial al local 🙂. Seguimos armando el resto y lo confirman antes de cerrar.');
+        return { ...r, crearSolicitud: { plato, descripcion } };
       }
       return { estado: e, salidas: [{ tipo: 'text', text: 'Escribime qué querés (algo que no está en el menú).' }] };
     }
@@ -587,8 +627,8 @@ function renderPaso(e, menu) {
     case PASOS.ACOMP_ASK: return botonesAcompAsk();
     case PASOS.ACOMP: return e.actual.agregados.length ? botonesAcompMas(e.actual.agregados.length, cupoIncluidos(e.actual, menu)) : renderAcomp(menu, e.actual);
     case PASOS.BEBIDA: return renderBebida(menu);
-    case PASOS.EXTRAS: return botonesExtrasAsk(menu);
-    case PASOS.MAS_MENUS: return botonesMasMenus();
+    case PASOS.EXTRAS: return renderExtras(menu, e.actual) ?? renderMasMenus(e, menu);
+    case PASOS.MAS_MENUS: return renderMasMenus(e, menu);
     case PASOS.MODALIDAD: return botonesModalidad();
     case PASOS.DIRECCION: return { tipo: 'text', text: 'Escríbeme la dirección (calle, número, depto).' };
     case PASOS.CONFIRMA_DIR: return confirmarDireccion(e.direccion ?? '');

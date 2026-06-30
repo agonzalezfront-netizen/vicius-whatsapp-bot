@@ -55,8 +55,8 @@ check(rSinAcomp.pedido?.total === 9000, `especial sin acompañamientos = $9.000 
 check((rSinAcomp.pedido?.items?.[0]?.agregados?.length ?? 0) === 0, 'especial "No, seguir": 0 acompañamientos');
 
 console.log('\n=== D) Extra (Papas $2.000) → $9.000 ===');
-r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_add', 'ex:0', 'ex_listo', 'mm_seguir', 'mod_local', 'pay_local', 'conf_si']);
-check(r.pedido?.total === 9000, `total = $9.000 (7000 + 2000 papas) (got ${r.pedido?.total})`);
+r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_si']);
+check(r.pedido?.total === 9000, `total = $9.000 (7000 + 2000 papas, botón directo) (got ${r.pedido?.total})`);
 
 console.log('\n=== E) Delivery + transferencia: suma $1.000 + status esperando_comprobante (con confirmación de dir) ===');
 r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_delivery', { tipo: 'text', texto: 'Los Aromos 123, casa' }, 'dir_ok', 'pay_transfer', 'conf_si']);
@@ -154,8 +154,8 @@ check(m.text.indexOf('Especiales') > m.text.indexOf('Extras'), 'especiales van D
 check(m.text.indexOf('Acompañamientos') < m.text.indexOf('Especiales'), 'acompañamientos antes que especiales');
 check(m.text.lastIndexOf('Armemos tu pedido') > m.text.indexOf('Especiales'), 'el cierre queda al final, tras especiales');
 
-console.log('\n=== K) UX: el paso de EXTRAS lista los extras con precio en el texto ===');
-// Tras elegir bebida, el mensaje de extras debe listar los extras del menú con su precio (antes de decidir).
+console.log('\n=== K) UX: paso de extras con BOTONES DIRECTOS (sin iteración, item 1) ===');
+// 2 extras (≤2) → reply buttons directos: [Papas][Quesillo][No, seguir]. Sin "Agregar extra" → lista.
 let eK = estadoInicial();
 let stK = eK, lastK = null;
 for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0']) {
@@ -163,9 +163,13 @@ for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0']) {
   const rr = procesar(stK, input, MENU); stK = rr.estado; lastK = rr.salidas[rr.salidas.length - 1];
 }
 check(stK.paso === PASOS.EXTRAS, 'tras bebida → paso EXTRAS');
-check(lastK.text.includes('Papas fritas') && lastK.text.includes('$2.000'), 'extras: lista "Papas fritas — $2.000" en el texto');
-check(lastK.text.includes('Quesillo') && lastK.text.includes('$2.500'), 'extras: lista "Quesillo — $2.500" en el texto');
-check((lastK.buttons || []).some((b) => b.id === 'ex_add') && (lastK.buttons || []).some((b) => b.id === 'ex_no'), 'extras: botones Agregar/No seguir intactos');
+check(lastK.tipo === 'buttons', '2 extras → reply buttons directos (sin lista intermedia)');
+check((lastK.buttons || []).some((b) => b.id === 'ex:0' && /Papas/.test(b.title)), 'botón directo del extra Papas (id ex:0 + precio en título)');
+check((lastK.buttons || []).some((b) => b.id === 'ex:1' && /Quesillo/.test(b.title)), 'botón directo del extra Quesillo (id ex:1)');
+check((lastK.buttons || []).some((b) => b.id === 'ex_no') && !(lastK.buttons || []).some((b) => b.id === 'ex_add'), '"No, seguir" presente y SIN el viejo "Agregar extra"');
+const rK1 = procesar(stK, { tipo: 'button', id: 'ex:0' }, MENU);
+check(rK1.estado.actual.extras.includes('Papas fritas'), 'tocar el extra lo selecciona al toque');
+check((rK1.salidas.slice(-1)[0].buttons || []).some((b) => b.id === 'ex:1'), 're-render ofrece SOLO el extra restante (Quesillo)');
 
 console.log('\n=== L) Editar pedido (pieza 2 FASE A) ===');
 // Pedido estándar con 2 acompañamientos (Arroz, Tajadas) + Consomé, retiro local → hasta el resumen.
@@ -250,15 +254,17 @@ check(rTxt.crearSolicitud.plato === 'Carne Mechada', 'solicitud etiquetada con e
 check(rTxt.estado.solicitud && rTxt.estado.solicitud.status === 'pendiente', 'solicitud draft queda pendiente');
 check(rTxt.estado.paso === PASOS.CONFIRMAR, 'vuelve a CONFIRMAR (no congela)');
 const sPend = rTxt.salidas[rTxt.salidas.length - 1];
-check(/pendiente de confirmar el local/.test(sPend.text), 'resumen muestra el pedido especial pendiente');
-check((sPend.buttons || []).some((b) => b.id === 'conf_sin_ajuste') && (sPend.buttons || []).some((b) => b.id === 'conf_esperar'), 'botones: seguir sin eso / esperar');
+check(/quedó pendiente/.test(sPend.text), 'resumen muestra el pedido especial pendiente (§8)');
+check((sPend.buttons || []).some((b) => b.id === 'conf_sin_ajuste') && (sPend.buttons || []).some((b) => b.id === 'mm_otro') && (sPend.buttons || []).some((b) => b.id === 'conf_editar'), 'pending §8: botones = agregar otro / editar / seguir sin el especial');
+check(!(sPend.buttons || []).some((b) => b.id === 'conf_esperar') && !/¿Confirmamos\?/.test(sPend.text), 'pending §8: SIN botón "Esperar" y SIN "¿Confirmamos?" (esperar = default en el texto)');
 // N2: "seguir sin eso" → confirma sin el ajuste.
 const rSin = procesar(structuredClone(rTxt.estado), { tipo: 'button', id: 'conf_sin_ajuste' }, MENU);
 check(!!rSin.pedido && rSin.pedido.total === 7000 && !rSin.pedido.ajuste_especial, 'seguir sin eso → pedido $7.000 sin ajuste');
-// N3: el router reconcilia (inyecta aplicado) → "esperar" re-render muestra ajuste + costo + botón Confirmar.
+// N3: el router reconcilia (inyecta aplicado) y re-renderiza (cualquier input → reRender del resumen):
+// ahora muestra ajuste + costo + botón Confirmar (§8: el Confirmar aparece cuando el local resolvió).
 const stApp = structuredClone(rTxt.estado);
 stApp.solicitud = { ...stApp.solicitud, status: 'aplicado', costo: 3000, descripcion: 'torta de chocolate' };
-const sApp = procesar(stApp, { tipo: 'button', id: 'conf_esperar' }, MENU).salidas.slice(-1)[0];
+const sApp = procesar(stApp, { tipo: 'button', id: '__rerender__' }, MENU).salidas.slice(-1)[0];
 check(/torta de chocolate/.test(sApp.text) && /3\.000/.test(sApp.text), 'aplicado: resumen muestra ajuste + costo');
 check(/Total: \$10\.000/.test(sApp.text), `aplicado: total $10.000 (7000+3000) (got: "${sApp.text.split('\\n').find(l => l.includes('Total')) || '?'}")`);
 check((sApp.buttons || []).some((b) => b.id === 'conf_si'), 'aplicado: vuelve el botón Confirmar');
@@ -267,6 +273,30 @@ const rConf = procesar(structuredClone(stApp), { tipo: 'button', id: 'conf_si' }
 check(rConf.pedido && rConf.pedido.total === 10000, 'confirmar aplicado → total $10.000');
 check(rConf.pedido.ajuste_especial && rConf.pedido.ajuste_especial.costo === 3000, 'pedido lleva ajuste_especial ($3.000)');
 
+console.log('\n=== O) §7: "¿otro menú o seguir?" con resumen parcial + Editar ===');
+let stO = estadoInicial();
+for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0', 'ex_no']) {
+  stO = procesar(stO, { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('beb:') ? 'list' : 'button', id: s }, MENU).estado;
+}
+check(stO.paso === PASOS.MAS_MENUS, 'tras extras → paso MAS_MENUS');
+const sMM = procesar(stO, { tipo: 'button', id: '__noop__' }, MENU).salidas.slice(-1)[0]; // re-render del paso
+check(/Total: \$7\.000/.test(sMM.text), '§7: muestra el total PARCIAL en el texto ($7.000)');
+check((sMM.buttons || []).some((b) => b.id === 'mm_editar') && (sMM.buttons || []).some((b) => b.id === 'mm_otro') && (sMM.buttons || []).some((b) => b.id === 'mm_seguir'), '§7: botones [Otro menú][Editar][Seguir]');
+const rEd = procesar(stO, { tipo: 'button', id: 'mm_editar' }, MENU);
+check(rEd.estado.paso === PASOS.EDIT_PICK && rEd.estado.editReturn === PASOS.MAS_MENUS, 'mm_editar → EDIT_PICK con editReturn=MAS_MENUS');
+const rEdBack = procesar(rEd.estado, { tipo: 'list', id: 'ep_volver' }, MENU);
+check(rEdBack.estado.paso === PASOS.MAS_MENUS, 'volver de la edición → regresa a MAS_MENUS (NO a CONFIRMAR → no saltea pago)');
+
+console.log('\n=== P) item 1: 0 extras → saltar el paso de extras ===');
+const MENU0 = { ...MENU, extras_pagados: [] };
+let stP = estadoInicial(); let lastP = null;
+for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0']) {
+  const rr = procesar(stP, { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('beb:') ? 'list' : 'button', id: s }, MENU0);
+  stP = rr.estado; lastP = rr.salidas.slice(-1)[0];
+}
+check(stP.paso === PASOS.MAS_MENUS, '0 extras → tras bebida SALTA el paso de extras y cae en MAS_MENUS');
+check(/Total/.test(lastP.text) && (lastP.buttons || []).some((b) => b.id === 'mm_seguir'), '0 extras: muestra directo el resumen de "otro menú o seguir"');
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (14 escenarios)');
+console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (16 escenarios)');
 process.exit(fails ? 1 : 0);
