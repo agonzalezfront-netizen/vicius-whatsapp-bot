@@ -13,6 +13,26 @@ const WIZARD_AUTH =
   Buffer.from(`${process.env.WIZARD_USER ?? ''}:${process.env.WIZARD_PASS ?? ''}`).toString('base64');
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ViciusBot/1.0';
 
+// El wizard (Flask en cPanel, detrás de Cloudflare) devuelve 5xx intermitentes (500/520/525) bajo
+// carga — sobre todo con la ráfaga de pollers + el estado por mensaje. Un hipo transitorio del origen
+// NO debe romper el flujo: reintentamos SOLO ante 5xx (un 4xx no se arregla reintentando). Causa raíz
+// del bug 2026-06-29 (botones del menú inicial no llegaban): setEstadoFlujo recibía un 520 y tiraba,
+// abortando el turno ANTES de enviar la lista. Reintento acotado (no bloquea perceptiblemente).
+async function fetchConReintento(url, opts, { reintentos = 2, baseMs = 250 } = {}) {
+  let ultimo;
+  for (let i = 0; i <= reintentos; i++) {
+    try {
+      const res = await fetch(url, opts);
+      if (res.ok || res.status < 500) return res; // 2xx/4xx → devolver tal cual (no reintentar 4xx)
+      ultimo = res;
+    } catch (e) {
+      ultimo = { ok: false, status: 0, _err: e, json: async () => ({}), text: async () => '' };
+    }
+    if (i < reintentos) await new Promise((r) => setTimeout(r, baseMs * (i + 1)));
+  }
+  return ultimo;
+}
+
 export async function crearPedido(pedido) {
   const res = await fetch(`${WIZARD_BASE}/api/pedidos`, {
     method: 'POST',
@@ -108,7 +128,7 @@ export async function estadoUltimoPedido(jid) {
 // ── Tier básico (MODE=buttons): estado parcial del pedido por jid, persistido en el wizard ──
 // (sobrevive redeploys de Railway — el pedido a medio armar no se pierde).
 export async function getEstadoFlujo(jid) {
-  const res = await fetch(`${WIZARD_BASE}/api/flujo-estado?jid=${encodeURIComponent(jid)}`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/flujo-estado?jid=${encodeURIComponent(jid)}`, {
     headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
   });
   if (!res.ok) throw new Error(`getEstadoFlujo HTTP ${res.status}`);
@@ -116,7 +136,7 @@ export async function getEstadoFlujo(jid) {
 }
 
 export async function setEstadoFlujo(jid, estado) {
-  const res = await fetch(`${WIZARD_BASE}/api/flujo-estado`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/flujo-estado`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
     body: JSON.stringify({ cliente_jid: jid, estado }),

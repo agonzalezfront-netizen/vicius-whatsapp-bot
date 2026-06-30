@@ -22,6 +22,21 @@ async function enviar(sock, jid, salidas) {
   for (const s of salidas) await sock.sendMessage(jid, payloadDe(s));
 }
 
+// Persiste el estado del pedido SIN bloquear el envío de los botones. El tier básico es 100% botones:
+// si el wizard tiene un hipo (5xx intermitente del origen cPanel/Cloudflare), el cliente DEBE recibir
+// igual los botones — perder la persistencia degrada a "re-saludar al próximo mensaje", nunca a
+// "pantalla sin botones" (bug 2026-06-29: un 520 en setEstadoFlujo abortaba el turno antes de la lista).
+// setEstadoFlujo ya reintenta ante 5xx; este catch es la última red para que el envío nunca se caiga.
+async function persistir(jid, estado, logger) {
+  try {
+    await setEstadoFlujo(jid, estado);
+    return true;
+  } catch (e) {
+    logger?.warn?.({ jid, err: e.message }, 'setEstadoFlujo falló — envío los botones igual (estado NO persistido)');
+    return false;
+  }
+}
+
 // Dispara el pedido creado al panel + push al dueño + limpia el estado.
 async function finalizar(jid, senderName, pedido, logger) {
   try {
@@ -53,7 +68,7 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
     const menuTxt = renderMenuCliente(menu);
     if (menuTxt) await sock.sendMessage(jid, payloadDe(menuTxt));
     const r0 = procesar(estado, { tipo: 'init' }, menu); // input neutro → re-render del paso inicial (PROTEINA)
-    await setEstadoFlujo(jid, r0.estado);
+    await persistir(jid, r0.estado, logger); // no-fatal: si el wizard 5xx-ea, igual mandamos los botones
     await enviar(sock, jid, r0.salidas);
     return;
   }
@@ -86,7 +101,7 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
     }
   }
 
-  await setEstadoFlujo(jid, r.estado);
+  await persistir(jid, r.estado, logger); // no-fatal: un 5xx del wizard no debe tragarse la respuesta
   await enviar(sock, jid, r.salidas);
   // Si el cliente escribió algo no reconocido 2 veces seguidas → la máquina pide escalar (duda).
   if (r.escalar) {
