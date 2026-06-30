@@ -175,7 +175,7 @@ console.log('\n=== L) Editar pedido (pieza 2 FASE A) ===');
 // Pedido estándar con 2 acompañamientos (Arroz, Tajadas) + Consomé, retiro local → hasta el resumen.
 const hastaResumen = ['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local'];
 // L1: editar acompañamiento Arroz→Puré (ambos incluidos) → total sigue $7.000, agregado cambiado.
-r = correr([...hastaResumen, 'conf_editar', 'ep:0', 'ei_acomp', 'eaf:0', 'eat:2', 'conf_si']);
+r = correr([...hastaResumen, 'conf_editar', 'ep:0', 'ei_parte', 'epf:a:0', 'eat:2', 'conf_si']);
 check(r.pedido?.items?.[0]?.agregados?.[0] === 'Puré', `acompañamiento cambiado a Puré (got ${r.pedido?.items?.[0]?.agregados?.[0]})`);
 check(r.pedido?.items?.[0]?.agregados?.[1] === 'Tajadas', 'el otro acompañamiento intacto (Tajadas)');
 check(r.pedido?.total === 7000, `total sigue $7.000 (incluido→incluido gratis) (got ${r.pedido?.total})`);
@@ -201,7 +201,7 @@ check(rReset.estado.paso === PASOS.RESET_CONFIRM, 'conf_reset → pide confirmac
 check(procesar(structuredClone(rReset.estado), { tipo: 'button', id: 'reset_no' }, MENU).estado.paso === PASOS.CONFIRMAR, '"No, volver" → vuelve al resumen');
 check(procesar(structuredClone(rReset.estado), { tipo: 'button', id: 'reset_si' }, MENU).estado.paso === PASOS.PROTEINA, '"Sí, de nuevo" → reinicia (PROTEINA)');
 // L6: editar el 3er acompañamiento (pagado) → total se mantiene $9.000 (recálculo coherente por posición).
-r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_mas', 'ac:2', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_editar', 'ep:0', 'ei_acomp', 'eaf:2', 'eat:3', 'conf_si']);
+r = correr(['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_mas', 'ac:2', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_editar', 'ep:0', 'ei_parte', 'epf:a:2', 'eat:3', 'conf_si']);
 check(r.pedido?.total === 9000, `editar el 3º (pagado) mantiene $9.000 (got ${r.pedido?.total})`);
 check(r.pedido?.items?.[0]?.agregados?.[2] === 'Ensalada mixta', 'el 3er acompañamiento quedó reemplazado');
 
@@ -213,29 +213,32 @@ const albacoraResumen = ['prot:3', 'acask_no', 'beb:0', 'ex_no', 'mm_seguir', 'm
 r = correr([...albacoraResumen, 'conf_si']);
 check(r.pedido?.total === 9000, `especial componible sin cambios = $9.000 (got ${r.pedido?.total})`);
 // M2: cambiar Tajadas (comp 0) por Papas fritas (extra $2.000) → $11.000 (incluido→pagado).
-r = correr([...albacoraResumen, 'conf_editar', 'ep:0', 'ei_comp', 'ecf:0', 'ect:4', 'conf_si']);
+r = correr([...albacoraResumen, 'conf_editar', 'ep:0', 'ei_parte', 'epf:c:0', 'ect:4', 'conf_si']);
 check(r.pedido?.total === 11000, `componente → extra pagado suma $2.000 → $11.000 (got ${r.pedido?.total})`);
 check(r.pedido?.items?.[0]?.componentes?.[0]?.nombre === 'Papas fritas', 'componente 0 reemplazado por Papas fritas');
 check(r.pedido?.items?.[0]?.componentes?.[0]?.costo === 2000, 'componente 0 con costo $2.000');
 // M3: cambiar Tajadas por Puré (acompañamiento del día, gratis) → sigue $9.000 (incluido→incluido).
-r = correr([...albacoraResumen, 'conf_editar', 'ep:0', 'ei_comp', 'ecf:0', 'ect:2', 'conf_si']);
+r = correr([...albacoraResumen, 'conf_editar', 'ep:0', 'ei_parte', 'epf:c:0', 'ect:2', 'conf_si']);
 check(r.pedido?.total === 9000, `componente → acompañamiento del día = gratis → $9.000 (got ${r.pedido?.total})`);
 check(r.pedido?.items?.[0]?.componentes?.[0]?.nombre === 'Puré', 'componente 0 reemplazado por Puré (gratis)');
-// M4: el plato del día (estándar) NO ofrece "cambiar componente".
+// M4 (H3): el plato del día ofrece "Cambiar algo del plato" (sobre sus acompañamientos), opción unificada.
 let stStd = estadoInicial(); let sEi = null;
 for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_editar', 'ep:0']) {
   const input = { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('ep:') ? 'list' : 'button', id: s };
   const rr = procesar(stStd, input, MENU); stStd = rr.estado; sEi = rr.salidas[rr.salidas.length - 1];
 }
-check(!(sEi.sections?.[0]?.rows || []).some((row) => row.id === 'ei_comp'), 'estándar NO ofrece "cambiar componente"');
-// M5: un componente NO reemplazable (Salsa, idx 2) no se puede elegir.
+check((sEi.sections?.[0]?.rows || []).some((row) => row.id === 'ei_parte') && !(sEi.sections?.[0]?.rows || []).some((row) => row.id === 'ei_comp' || row.id === 'ei_acomp'), 'H3: estándar ofrece "Cambiar algo del plato" (sin las viejas ei_comp/ei_acomp)');
+const sParteStd = procesar(stStd, { tipo: 'list', id: 'ei_parte' }, MENU).salidas.slice(-1)[0];
+check((sParteStd.sections?.[0]?.rows || []).some((r) => r.id === 'epf:a:0' && /Arroz/.test(r.title)), 'estándar: la parte cambiable es su acompañamiento (epf:a:0 = Arroz)');
+// M5 (H3): un componente NO reemplazable (Salsa) NO aparece en la lista de partes cambiables.
 let stC = estadoInicial();
-for (const s of [...albacoraResumen, 'conf_editar', 'ep:0', 'ei_comp']) {
+for (const s of [...albacoraResumen, 'conf_editar', 'ep:0', 'ei_parte']) {
   const input = { tipo: s.startsWith('prot') || s.startsWith('ep:') ? 'list' : 'button', id: s };
   const rr = procesar(stC, input, MENU); stC = rr.estado;
 }
-const rSalsa = procesar(stC, { tipo: 'list', id: 'ecf:2' }, MENU);
-check(rSalsa.estado.paso === PASOS.EDIT_COMP_FROM, 'componente no reemplazable (Salsa) rechazado → sigue en EDIT_COMP_FROM');
+const parteRows = procesar(stC, { tipo: 'list', id: '__rerender__' }, MENU).salidas.slice(-1)[0].sections?.[0]?.rows || [];
+check(!parteRows.some((r) => /Salsa/.test(r.title)), 'componente NO reemplazable (Salsa) no aparece en las partes cambiables');
+check(parteRows.some((r) => /Tajadas/.test(r.title)) && parteRows.some((r) => /Arroz/.test(r.title)), 'sí aparecen los reemplazables (Tajadas, Arroz)');
 // M6: el resumen lista la composición del especial.
 const resumenTxt = correr(albacoraResumen).last.text;
 check(/viene con: .*Tajadas/.test(resumenTxt), `el resumen muestra "viene con: ...Tajadas" (got: "${resumenTxt.split('\\n').find(l => l.includes('viene con')) || '?'}")`);
@@ -312,6 +315,31 @@ for (const s of ['beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_
 }
 check(rQ2.pedido?.total === 9000, `🔴 B1: especial sin extras → total = $9.000 (no suma agregados "gratis") (got ${rQ2.pedido?.total})`);
 
+console.log('\n=== R) H3: "Cambiar algo del plato" — pool unificado día + extras ===');
+// Estándar con 2 acompañamientos (Arroz, Tajadas) = $7.000. opcionesComponente = día [Arroz0 Tajadas1 Puré2
+// Ensalada3] (gratis) + extras [Papas fritas4 $2.000, Quesillo5 $2.500].
+const hastaResR = ['prot:0', 'ac:0', 'ac_mas', 'ac:1', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local'];
+let rR = correr([...hastaResR, 'conf_editar', 'ep:0', 'ei_parte', 'epf:a:0', 'eat:4', 'conf_si']); // Arroz → Papas ($2.000)
+check(rR.pedido?.total === 9000, `H3: acompañamiento → extra pagado suma $2.000 → $9.000 (got ${rR.pedido?.total})`);
+check((rR.pedido?.items?.[0]?.extras || []).includes('Papas fritas') && !(rR.pedido?.items?.[0]?.agregados || []).includes('Arroz'), 'el extra entró a extras y el acompañamiento salió de agregados');
+let rR2 = correr([...hastaResR, 'conf_editar', 'ep:0', 'ei_parte', 'epf:a:0', 'eat:2', 'conf_si']); // Arroz → Puré (día, gratis)
+check(rR2.pedido?.total === 7000 && (rR2.pedido?.items?.[0]?.agregados || []).includes('Puré'), 'H3: acompañamiento → otro del día = gratis, swap en agregados ($7.000)');
+
+console.log('\n=== S) H1: acompañamientos sin iteración (salida "Listo así" DENTRO de la lista) ===');
+let stS = procesar(estadoInicial(), { tipo: 'list', id: 'prot:0' }, MENU).estado;
+const sAc = procesar(stS, { tipo: 'list', id: 'ac:0' }, MENU).salidas.slice(-1)[0]; // tras elegir 1
+const acRows = sAc.sections?.[0]?.rows || [];
+check(sAc.tipo === 'list', 'H1: tras elegir, sigue siendo la LISTA (no botones "+ Otro/Listo" intermedios)');
+check(acRows.some((r) => r.id === 'ac_listo') && !acRows.some((r) => r.id === 'ac_mas'), 'H1: "Listo así" (ac_listo) va DENTRO de la lista; sin el "+ Otro" (ac_mas)');
+
+console.log('\n=== H2) bajadas descriptivas en el menú Editar ===');
+let stH2 = estadoInicial();
+for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_editar', 'ep:0']) {
+  stH2 = procesar(stH2, { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('ep:') ? 'list' : 'button', id: s }, MENU).estado;
+}
+const editRows = procesar(stH2, { tipo: 'list', id: '__rr__' }, MENU).salidas.slice(-1)[0].sections?.[0]?.rows || [];
+check(editRows.every((r) => r.id === 'ei_volver' || (r.description && r.description.length > 0)), 'H2: las opciones del menú Editar tienen bajada descriptiva');
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (17 escenarios)');
+console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (20 escenarios)');
 process.exit(fails ? 1 : 0);
