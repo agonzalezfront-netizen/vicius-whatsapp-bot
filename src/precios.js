@@ -26,8 +26,10 @@ function basePlato(proteina, menuActivo, fallback) {
   const esp = especiales.find((e) => norm(e.nombre) === norm(proteina));
   if (esp) return {
     esEspecial: true, base: Number(esp.precio) || 0,
-    // Cupo de agregados INCLUIDOS del especial (gratis). Retrocompat: si no tiene, 0 (todo paga, como antes).
-    incluidos: Array.isArray(esp.agregados_incluidos) ? esp.agregados_incluidos.length : 0,
+    // H4/B1 (2026-06-30): el especial NO tiene cupo de "elegí N gratis". Su composición fija (los
+    // agregados del día que incluye + los exclusivos) viaja en `item.componentes` (costo 0, ya en el
+    // precio). Por eso incluidos=0: cualquier acompañamiento EXTRA que el cliente sume es PAGADO.
+    incluidos: 0,
   };
   const precioMenu = menuActivo?.price_typical ?? fallback?.plato_estandar?.precio ?? 7000;
   return { esEspecial: false, base: precioMenu, incluidos: null };

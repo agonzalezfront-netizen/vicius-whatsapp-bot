@@ -84,11 +84,11 @@ function renderAcomp(menu, actual) {
 }
 // Cupo de acompañamientos INCLUIDOS (gratis) del ítem actual: estándar = 2; especial = su cupo propio.
 function cupoIncluidos(actual, menu) {
-  if (actual?.esEspecial) {
-    const esp = (menu?.platos_especiales ?? []).find((e) => _norm(e.nombre) === _norm(actual.proteina));
-    return Array.isArray(esp?.agregados_incluidos) ? esp.agregados_incluidos.length : 0;
-  }
-  return 2; // menú estándar incluye 2
+  // H4/B1 (2026-06-30): el ESPECIAL nunca tiene cupo de "elegí N gratis del día" — su composición es FIJA
+  // (vive en `componentes`, materializada al elegirlo). Siempre 0 → va a ACOMP_ASK (acompañamiento EXTRA
+  // opcional y PAGADO). Solo el menú del DÍA tiene 2 incluidos a elegir de la lista.
+  if (actual?.esEspecial) return 0;
+  return 2;
 }
 // Aviso del costo EN EL PUNTO DE DECISIÓN (mejora QA 2026-06-29): si ya superó el cupo, el próximo paga.
 function botonesAcompMas(n, cupo = 2) {
@@ -418,16 +418,20 @@ export function procesar(estado, input, menu) {
       e.actual = nuevoItem();
       e.actual.proteina = todos[idx].nombre;
       e.actual.esEspecial = todos[idx].esp;
-      // Especial COMPONIBLE (pieza 2): materializar sus componentes en el ítem para poder sustituirlos luego.
-      // Retrocompat: especial sin componentes (bloque) → queda [] y se comporta como hoy.
+      // Composición FIJA del especial (H4/B1, 2026-06-30): lo que el plato TRAE va en `componentes` —
+      // los agregados del día que incluye (Arroz, Tajadas: gratis, del pool del día, reemplazables) + los
+      // exclusivos (porotos negros). NO es un cupo "elegí N gratis del día": su composición ya está en el
+      // precio. Así B1 (ofrecía "2 gratis") y H4 (unificar incluidos+composición) quedan resueltos de raíz.
+      // `exclusivo` marca el origen: el exclusivo es reemplazable DENTRO de su plato, pero NO va al pool general.
       if (todos[idx].esp) {
         const espObj = esp.find((x) => _norm(x.nombre) === _norm(todos[idx].nombre));
-        if (espObj && Array.isArray(espObj.componentes) && espObj.componentes.length) {
-          e.actual.componentes = espObj.componentes.map((c) => ({ nombre: c.nombre, base: c.nombre, reemplazable: !!c.reemplazable, costo: 0 }));
-        }
+        const comp = [];
+        for (const a of (espObj?.agregados_incluidos ?? [])) comp.push({ nombre: String(a), base: String(a), reemplazable: true, costo: 0, exclusivo: false });
+        for (const c of (espObj?.componentes ?? [])) if (c && c.nombre) comp.push({ nombre: String(c.nombre), base: String(c.nombre), reemplazable: !!c.reemplazable, costo: 0, exclusivo: true });
+        e.actual.componentes = comp;
       }
-      // Especial sin incluidos (cupo 0): acompañamientos opcionales+pagos → PREGUNTAR antes (como extras).
-      // Menú del día (cupo>0): los incluidos son parte del plato → ir DIRECTO a elegir.
+      // Especial → cupo 0 (composición fija): acompañamiento EXTRA opcional y PAGADO → PREGUNTAR antes.
+      // Menú del día (cupo 2): los incluidos son a elegir de la lista → ir DIRECTO a elegir.
       if (cupoIncluidos(e.actual, menu) === 0) { e.paso = PASOS.ACOMP_ASK; return { estado: e, salidas: [botonesAcompAsk()] }; }
       e.paso = PASOS.ACOMP;
       return { estado: e, salidas: [renderAcomp(menu, e.actual)] };

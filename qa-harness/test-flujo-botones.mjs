@@ -297,6 +297,21 @@ for (const s of ['prot:0', 'ac:0', 'ac_listo', 'beb:0']) {
 check(stP.paso === PASOS.MAS_MENUS, '0 extras → tras bebida SALTA el paso de extras y cae en MAS_MENUS');
 check(/Total/.test(lastP.text) && (lastP.buttons || []).some((b) => b.id === 'mm_seguir'), '0 extras: muestra directo el resumen de "otro menú o seguir"');
 
+console.log('\n=== Q) B1+H4: especial con agregados_incluidos = composición FIJA (no "elegí 2 gratis") ===');
+const MENU_PAB = { ...MENU, platos_especiales: [{ nombre: 'Pabellón criollo', precio: 9000, agregados_incluidos: ['Arroz', 'Tajadas'], componentes: [{ nombre: 'porotos negros', reemplazable: true }] }] };
+const rQ = procesar(estadoInicial(), { tipo: 'list', id: 'prot:3' }, MENU_PAB); // índice 3 = el especial (tras 3 proteínas del día)
+check(rQ.estado.paso === PASOS.ACOMP_ASK, '🔴 B1: especial → ACOMP_ASK (extra PAGADO), NO el flujo "elegí 2 gratis del día"');
+const compQ = (rQ.estado.actual.componentes || []);
+const namesQ = compQ.map((c) => c.nombre);
+check(namesQ.includes('Arroz') && namesQ.includes('Tajadas') && namesQ.includes('porotos negros'), 'H4: composición = agregados_incluidos (Arroz, Tajadas) + exclusivos (porotos)');
+check(compQ.every((c) => c.costo === 0), 'composición va gratis (ya en el precio del especial)');
+check(compQ.find((c) => c.nombre === 'Arroz')?.exclusivo === false && compQ.find((c) => c.nombre === 'porotos negros')?.exclusivo === true, 'origen marcado: Arroz=del día (no exclusivo), porotos=exclusivo del plato');
+let rQ2 = procesar(rQ.estado, { tipo: 'button', id: 'acask_no' }, MENU_PAB); // sin acompañamiento extra
+for (const s of ['beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local', 'conf_si']) {
+  rQ2 = procesar(rQ2.estado, { tipo: s.startsWith('beb:') ? 'list' : 'button', id: s }, MENU_PAB);
+}
+check(rQ2.pedido?.total === 9000, `🔴 B1: especial sin extras → total = $9.000 (no suma agregados "gratis") (got ${rQ2.pedido?.total})`);
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (16 escenarios)');
+console.log(fails ? `${fails} FALLO(S)` : 'TODO OK (17 escenarios)');
 process.exit(fails ? 1 : 0);
