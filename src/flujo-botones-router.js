@@ -38,7 +38,9 @@ async function persistir(jid, estado, logger) {
 }
 
 // Dispara el pedido creado al panel + push al dueño + limpia el estado.
-async function finalizar(jid, senderName, pedido, logger) {
+// ESENCIAL: crearPedido NO debe fingir éxito. Ya reintenta ante 5xx; si igual falla, avisamos honesto
+// al cliente + escalamos al local (encargo resiliencia integral 2026-06-29). Recibe `sock` para avisar.
+async function finalizar(sock, jid, senderName, pedido, logger) {
   try {
     const res = await crearPedido({ cliente_jid: jid, cliente_nombre: senderName ?? '', ...pedido });
     logger?.info?.({ jid, pedidoId: res?.id, total: pedido.total }, '🧾 pedido (tier básico) creado');
@@ -50,7 +52,9 @@ async function finalizar(jid, senderName, pedido, logger) {
       logger,
     ).catch(() => {});
   } catch (e) {
-    logger?.error?.({ jid, err: e.message }, 'tier básico: crearPedido FALLA');
+    logger?.error?.({ jid, err: e.message }, 'tier básico: crearPedido FALLA → aviso honesto al cliente + escalo (NO finjo éxito)');
+    escalarAHumano(jid, 'crear-pedido-falla-tier-basico').catch(() => {});
+    await sock.sendMessage(jid, { text: 'Recién te confirmé, pero tuve un problema al registrar el pedido en el sistema 😕. Le avisé al local para que lo tome a mano y te confirman en un momento 🙏' }).catch(() => {});
   }
   await borrarEstadoFlujo(jid).catch(() => {});
 }
@@ -108,5 +112,5 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
     escalarAHumano(jid, 'consulta-tier-basico').catch(() => {});
     await sock.sendMessage(jid, { text: 'Si tenés una consulta, te conecto con el local 🙂. Para seguir tu pedido, tocá una opción o escribí su nombre 👇' });
   }
-  if (r.pedido) await finalizar(jid, senderName, r.pedido, logger);
+  if (r.pedido) await finalizar(sock, jid, senderName, r.pedido, logger);
 }

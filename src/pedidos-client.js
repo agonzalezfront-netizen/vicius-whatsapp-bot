@@ -13,28 +13,14 @@ const WIZARD_AUTH =
   Buffer.from(`${process.env.WIZARD_USER ?? ''}:${process.env.WIZARD_PASS ?? ''}`).toString('base64');
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) ViciusBot/1.0';
 
-// El wizard (Flask en cPanel, detrás de Cloudflare) devuelve 5xx intermitentes (500/520/525) bajo
-// carga — sobre todo con la ráfaga de pollers + el estado por mensaje. Un hipo transitorio del origen
-// NO debe romper el flujo: reintentamos SOLO ante 5xx (un 4xx no se arregla reintentando). Causa raíz
-// del bug 2026-06-29 (botones del menú inicial no llegaban): setEstadoFlujo recibía un 520 y tiraba,
-// abortando el turno ANTES de enviar la lista. Reintento acotado (no bloquea perceptiblemente).
-async function fetchConReintento(url, opts, { reintentos = 2, baseMs = 250 } = {}) {
-  let ultimo;
-  for (let i = 0; i <= reintentos; i++) {
-    try {
-      const res = await fetch(url, opts);
-      if (res.ok || res.status < 500) return res; // 2xx/4xx → devolver tal cual (no reintentar 4xx)
-      ultimo = res;
-    } catch (e) {
-      ultimo = { ok: false, status: 0, _err: e, json: async () => ({}), text: async () => '' };
-    }
-    if (i < reintentos) await new Promise((r) => setTimeout(r, baseMs * (i + 1)));
-  }
-  return ultimo;
-}
+// Reintento ante 5xx en TODAS las llamadas al wizard (resiliencia integral 2026-06-29): el origen
+// cPanel flapea bajo carga. La función SOLO reintenta; el manejo fatal/no-fatal lo decide cada caller
+// según si el resultado es esencial para el cliente (crearPedido/comprobante → error visible) o no
+// (persistir estado/notifs → no-fatal). Helper compartido en http-retry.js.
+import { fetchConReintento } from './http-retry.js';
 
 export async function crearPedido(pedido) {
-  const res = await fetch(`${WIZARD_BASE}/api/pedidos`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/pedidos`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
@@ -50,7 +36,7 @@ export async function crearPedido(pedido) {
 // Persistencia del menú activo: el bot guarda el payload publicado en el wizard
 // (SQLite persistente) y lo recupera al arrancar, para sobrevivir redeploys de Railway.
 export async function guardarMenuActual(payload) {
-  const res = await fetch(`${WIZARD_BASE}/api/menu-actual`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/menu-actual`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
     body: JSON.stringify(payload),
@@ -62,7 +48,7 @@ export async function guardarMenuActual(payload) {
 // Gestor de pedidos: el bot consulta las notificaciones pendientes (validado/
 // rechazado) que la dueña generó en la app, las manda al cliente y las marca.
 export async function getNotifPendientes() {
-  const res = await fetch(`${WIZARD_BASE}/api/notif-pendientes`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/notif-pendientes`, {
     method: 'GET',
     headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
   });
@@ -72,7 +58,7 @@ export async function getNotifPendientes() {
 }
 
 export async function marcarNotificado(pedidoId) {
-  const res = await fetch(`${WIZARD_BASE}/api/pedidos/${pedidoId}/notificado`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/pedidos/${pedidoId}/notificado`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
     body: '{}',
@@ -82,7 +68,7 @@ export async function marcarNotificado(pedidoId) {
 }
 
 export async function cargarMenuActual() {
-  const res = await fetch(`${WIZARD_BASE}/api/menu-actual`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/menu-actual`, {
     method: 'GET',
     headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
   });
@@ -97,7 +83,7 @@ export async function cargarMenuActual() {
 // al wizard (DB persistente) por el pedido MÁS RECIENTE de este jid que sigue
 // esperando comprobante. El backend ya ordena por created_at DESC.
 export async function buscarPedidoEsperandoComprobante(jid) {
-  const res = await fetch(`${WIZARD_BASE}/api/pedidos?status=esperando_comprobante`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/pedidos?status=esperando_comprobante`, {
     method: 'GET',
     headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
   });
@@ -113,7 +99,7 @@ export async function buscarPedidoEsperandoComprobante(jid) {
 // el bot respondía con el historial conversacional, sin el estado real del pedido).
 // Devuelve { id, status, total } del más reciente, o null si el cliente no tiene pedidos.
 export async function estadoUltimoPedido(jid) {
-  const res = await fetch(`${WIZARD_BASE}/api/pedidos`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/pedidos`, {
     method: 'GET',
     headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
   });
@@ -146,7 +132,7 @@ export async function setEstadoFlujo(jid, estado) {
 }
 
 export async function borrarEstadoFlujo(jid) {
-  const res = await fetch(`${WIZARD_BASE}/api/flujo-estado/borrar`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/flujo-estado/borrar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
     body: JSON.stringify({ cliente_jid: jid }),
@@ -158,7 +144,7 @@ export async function borrarEstadoFlujo(jid) {
 // ── Solicitudes "fuera de carta" (pieza 2 FASE B, Nivel 2 async) ──────────────────────────────
 // El bot crea una solicitud PENDIENTE (no congela el pedido) y luego consulta su estado para reconciliar.
 export async function crearSolicitudEspecial({ cliente_jid, cliente_nombre, plato, descripcion }) {
-  const res = await fetch(`${WIZARD_BASE}/api/solicitud-especial`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/solicitud-especial`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
     body: JSON.stringify({ cliente_jid, cliente_nombre, plato, descripcion }),
@@ -168,7 +154,7 @@ export async function crearSolicitudEspecial({ cliente_jid, cliente_nombre, plat
 }
 
 export async function getSolicitudEspecial(id) {
-  const res = await fetch(`${WIZARD_BASE}/api/solicitud-especial?id=${encodeURIComponent(id)}`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/solicitud-especial?id=${encodeURIComponent(id)}`, {
     headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
   });
   if (!res.ok) throw new Error(`getSolicitudEspecial HTTP ${res.status}`);
@@ -179,7 +165,7 @@ export async function subirComprobante(pedidoId, buffer, mime) {
   const form = new FormData();
   const ext = mime?.includes('png') ? 'png' : 'jpg';
   form.append('imagen', new Blob([buffer], { type: mime ?? 'image/jpeg' }), `comprobante.${ext}`);
-  const res = await fetch(`${WIZARD_BASE}/api/pedidos/${pedidoId}/comprobante`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/pedidos/${pedidoId}/comprobante`, {
     method: 'POST',
     headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
     body: form,

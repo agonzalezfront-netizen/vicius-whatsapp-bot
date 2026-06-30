@@ -379,9 +379,12 @@ export async function handleMessage({ sock, logger, menu, msg }) {
           await sendBotMessage(sock, jid, { text: 'Gracias 🙂. Si es un comprobante de pago, avisanos y lo validamos.' });
         }
       } catch (e) {
-        logger.error({ jid, err: e.message }, 'tier básico: subir comprobante FALLA');
+        // ESENCIAL (comprobante): NO fingir éxito. subirComprobante ya reintentó ante 5xx; si igual
+        // falló, avisamos honesto + escalamos (el local lo toma a mano) — un comprobante "perdido" en
+        // silencio es peor que pedir reenvío (encargo resiliencia integral 2026-06-29).
+        logger.error({ jid, err: e.message }, 'tier básico: subir comprobante FALLA → aviso honesto + escalo');
         escalarAHumano(jid, 'comprobante-tier-basico').catch(() => {});
-        await sendBotMessage(sock, jid, { text: '¡Recibí tu comprobante! El local lo valida y te confirma 🙂' });
+        await sendBotMessage(sock, jid, { text: 'Recibí tu imagen pero tuve un problema al guardarla 😕. Le avisé al local para que la revise; si no aparece, reenviámela en un ratito 🙂' });
       }
       return;
     }
@@ -671,7 +674,13 @@ export async function handleMessage({ sock, logger, menu, msg }) {
           logger,
         ).catch(() => {});
       } catch (err) {
-        logger.error({ jid, err: err.message }, 'crearPedido FALLA (el cliente igual recibe su confirmación)');
+        // ESENCIAL (pedido): NO fingir éxito. crearPedido ya reintentó ante 5xx; si igual falló,
+        // REEMPLAZAMOS la confirmación del LLM por un aviso honesto + escalamos (el local lo toma a
+        // mano). Un pedido "perdido" en silencio es peor que pedir un momento (encargo 2026-06-29).
+        // No seteamos ultimaFirmaCreada → el próximo mensaje reintenta crearlo.
+        logger.error({ jid, err: err.message }, 'crearPedido FALLA → aviso honesto al cliente + escalo (NO finjo éxito)');
+        escalarAHumano(jid, 'crear-pedido-falla').catch(() => {});
+        respuesta = 'Uy, tuve un problema al registrar tu pedido 😕. Le avisé a Carla y César para que lo tomen a mano y te confirman en un momento. Disculpá la demora 🙏';
       }
     }
   }

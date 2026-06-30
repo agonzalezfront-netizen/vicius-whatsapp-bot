@@ -7,6 +7,7 @@
 // NO debe romper el flujo del bot si el wizard no responde (se loguea y sigue).
 
 import { enviarPushEquipo } from './push.js';
+import { fetchConReintento } from './http-retry.js';
 
 const WIZARD_BASE = process.env.WIZARD_BASE ?? 'https://viciusstudio.cl/wizard';
 const WIZARD_AUTH =
@@ -24,7 +25,7 @@ function _headers(json = true) {
 //   { cliente_jid, cliente_nombre?, wa_message_id?, direction: 'in'|'out',
 //     sender: 'cliente'|'bot'|'humano', sender_nombre?, type?, text?, media_ref?, status?, ts? }
 export async function registrarMensaje(msg) {
-  const res = await fetch(`${WIZARD_BASE}/api/mensajes`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/mensajes`, {
     method: 'POST', headers: _headers(), body: JSON.stringify(msg),
   });
   if (!res.ok) throw new Error(`registrarMensaje HTTP ${res.status}`);
@@ -33,7 +34,7 @@ export async function registrarMensaje(msg) {
 
 // Actualiza el estado de entrega de un saliente (sent/delivered/read/failed).
 export async function actualizarEstadoMensaje(waMessageId, status, error = null) {
-  const res = await fetch(`${WIZARD_BASE}/api/mensajes/${encodeURIComponent(waMessageId)}/estado`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/mensajes/${encodeURIComponent(waMessageId)}/estado`, {
     method: 'PATCH', headers: _headers(), body: JSON.stringify({ status, error }),
   });
   if (!res.ok) throw new Error(`actualizarEstadoMensaje HTTP ${res.status}`);
@@ -62,7 +63,7 @@ export async function botPausado(jid) {
 export async function escalarAHumano(jid, motivo) {
   const body = { accion: 'requiere_humano' };
   if (motivo) body.motivo = motivo;
-  const res = await fetch(`${WIZARD_BASE}/api/conversaciones/${encodeURIComponent(jid)}/estado`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/conversaciones/${encodeURIComponent(jid)}/estado`, {
     method: 'POST', headers: _headers(), body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`escalarAHumano HTTP ${res.status}`);
@@ -77,7 +78,7 @@ export async function escalarAHumano(jid, motivo) {
 // Fase 5 (constancia): el poller lista la bandeja para re-pushear las conversaciones que siguen en
 // requiere_humano sin tomar. Best-effort desde el caller.
 export async function listarConversaciones() {
-  const res = await fetch(`${WIZARD_BASE}/api/conversaciones`, { method: 'GET', headers: _headers(false) });
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/conversaciones`, { method: 'GET', headers: _headers(false) });
   if (!res.ok) throw new Error(`listarConversaciones HTTP ${res.status}`);
   const data = await res.json();
   return data.conversaciones ?? [];
@@ -85,7 +86,7 @@ export async function listarConversaciones() {
 
 // Devuelve la conversación al bot (timeout 25min / resolución). Idempotente.
 export async function devolverAlBot(jid) {
-  const res = await fetch(`${WIZARD_BASE}/api/conversaciones/${encodeURIComponent(jid)}/estado`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/conversaciones/${encodeURIComponent(jid)}/estado`, {
     method: 'POST', headers: _headers(), body: JSON.stringify({ accion: 'devolver_al_bot' }),
   });
   if (!res.ok) throw new Error(`devolverAlBot HTTP ${res.status}`);
@@ -95,7 +96,7 @@ export async function devolverAlBot(jid) {
 // Fase 2 — saliente del humano: el bot pollea las respuestas del humano pendientes de
 // envío (status 'enviando' en la bandeja) y las manda por el número del bot.
 export async function salientesPendientes() {
-  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/salientes`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/comunicaciones/salientes`, {
     method: 'GET', headers: _headers(false),
   });
   if (!res.ok) throw new Error(`salientesPendientes HTTP ${res.status}`);
@@ -106,7 +107,7 @@ export async function salientesPendientes() {
 // Confirma que el saliente del humano (id de la bandeja) se envió, con el wa_message_id
 // de Cloud API → de ahí los estados de entrega siguen por el webhook.
 export async function marcarSalienteEnviado(id, waMessageId) {
-  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/salientes/${id}/enviado`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/comunicaciones/salientes/${id}/enviado`, {
     method: 'POST', headers: _headers(), body: JSON.stringify({ wa_message_id: waMessageId ?? null }),
   });
   if (!res.ok) throw new Error(`marcarSalienteEnviado HTTP ${res.status}`);
@@ -116,7 +117,7 @@ export async function marcarSalienteEnviado(id, waMessageId) {
 // "Devolver al bot" manual: el bot pollea las conversaciones que un humano devolvió y debe
 // RELANZAR el flujo (saludo+menú proactivo). Devuelve la lista de jids pendientes.
 export async function relanzarPendientes() {
-  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/relanzar-pendientes`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/comunicaciones/relanzar-pendientes`, {
     method: 'GET', headers: _headers(false),
   });
   if (!res.ok) throw new Error(`relanzarPendientes HTTP ${res.status}`);
@@ -126,7 +127,7 @@ export async function relanzarPendientes() {
 
 // Confirma que ya relanzó el flujo de esa conversación → baja el flag (evita re-disparo).
 export async function marcarRelanzado(jid) {
-  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/relanzar-hecho`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/comunicaciones/relanzar-hecho`, {
     method: 'POST', headers: _headers(), body: JSON.stringify({ jid }),
   });
   if (!res.ok) throw new Error(`marcarRelanzado HTTP ${res.status}`);
@@ -137,7 +138,7 @@ export async function marcarRelanzado(jid) {
 // inactivas ~25min → el wizard las devuelve al bot (reactivación automática). El bot lo
 // dispara periódicamente (el wizard no tiene scheduler propio).
 export async function barrerTimeouts() {
-  const res = await fetch(`${WIZARD_BASE}/api/comunicaciones/barrer-timeouts`, {
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/comunicaciones/barrer-timeouts`, {
     method: 'POST', headers: _headers(), body: '{}',
   });
   if (!res.ok) throw new Error(`barrerTimeouts HTTP ${res.status}`);
