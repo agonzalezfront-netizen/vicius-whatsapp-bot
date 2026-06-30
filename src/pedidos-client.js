@@ -97,7 +97,9 @@ export async function buscarPedidoEsperandoComprobante(jid) {
 // CONTEXTO al system prompt: así el bot, ante un "gracias" post-entrega, no responde
 // "quedo atento al comprobante" — sabe que el pedido ya está entregado (bug 2026-06-09:
 // el bot respondía con el historial conversacional, sin el estado real del pedido).
-// Devuelve { id, status, total } del más reciente, o null si el cliente no tiene pedidos.
+// Devuelve { id, status, total, created_at } del más reciente, o null si el cliente no tiene pedidos.
+// `created_at` (BUG7): permite distinguir un estado FANTASMA (se escribió antes de crearse el pedido = lo
+// produjo) de un cliente recurrente (su estado nuevo es MUY posterior al pedido viejo).
 export async function estadoUltimoPedido(jid) {
   const res = await fetchConReintento(`${WIZARD_BASE}/api/pedidos`, {
     method: 'GET',
@@ -108,7 +110,7 @@ export async function estadoUltimoPedido(jid) {
   const delJid = (data.pedidos ?? []).filter((p) => p.cliente_jid === jid);
   if (!delJid.length) return null;
   const p = delJid[0]; // el backend ordena por created_at DESC
-  return { id: p.id, status: p.status, total: p.total };
+  return { id: p.id, status: p.status, total: p.total, created_at: p.created_at };
 }
 
 // ── Tier básico (MODE=buttons): estado parcial del pedido por jid, persistido en el wizard ──

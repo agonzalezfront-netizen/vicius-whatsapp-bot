@@ -61,20 +61,28 @@ function nuevoItem() { return { proteina: null, esEspecial: false, agregados: []
 // que arma un pedido nuevo y su pedido anterior está entregado). `ultimoPedido` = {status,total} o null.
 // `ahoraMs`/`estado._ts` (sello que pone el router al persistir) → staleness.
 const STALE_MS = 90 * 60 * 1000; // 90 min: nadie arma un pedido por botones tanto tiempo; sí es ghost.
+const GRACIA_MS = 2 * 60 * 1000; // tolerancia de skew entre el reloj del bot (_ts) y el del wizard (created_at).
 const _EN_PIPELINE = new Set(['esperando_comprobante', 'pendiente_validacion', 'en_cocina', 'validado', 'en_camino', 'listo']);
 export function esEstadoFantasma(estado, ultimoPedido, menu, ahoraMs) {
   if (!estado) return false;
   if (estado.paso === PASOS.FIN) return true;        // flujo completado: no debería sobrevivir
   if (estado.paso !== PASOS.CONFIRMAR) return false; // mientras ARMA (proteína/acomp/…) NO es fantasma
-  // (a) STALE: estado viejo (o sin sello, de antes del fix) en el resumen → fantasma. Sin falsos positivos: un
-  // armado real recién persistido tiene _ts reciente.
-  if (ahoraMs && (!estado._ts || (ahoraMs - estado._ts) > STALE_MS)) return true;
-  // (b) DUPLICADO inmediato (dentro de la ventana stale): hay un pedido EN PIPELINE con el MISMO total → es ese
-  // mismo pedido ya emitido; re-confirmar lo duplicaría. (Solo pipeline: un pedido entregado puede ser de un
-  // cliente recurrente armando otro igual → NO es fantasma si su estado es reciente.)
-  if (!ultimoPedido || !_EN_PIPELINE.has(ultimoPedido.status)) return false;
-  const t = calcularPedido(estado.items ?? [], estado.tipo, menu, null).total;
-  return Number(ultimoPedido.total) === t;
+  // (a) sin sello (estado de antes del fix) o STALE (>90 min) en el resumen → fantasma. Un armado real recién
+  // persistido tiene _ts reciente → sin falsos positivos.
+  if (!estado._ts) return true;
+  if (ahoraMs && (ahoraMs - estado._ts) > STALE_MS) return true;
+  if (!ultimoPedido || !ultimoPedido.status) return false; // sin pedido emitido → confirmación normal
+  const mismoTotal = Number(ultimoPedido.total) === calcularPedido(estado.items ?? [], estado.tipo, menu, null).total;
+  if (!mismoTotal) return false; // total distinto → 2º pedido legítimo (recurrente), nunca fantasma
+  // (b) ¿el estado ES el que PRODUJO este pedido? El fantasma se persistió por ÚLTIMA vez (en CONFIRMAR) justo
+  // ANTES de crearse el pedido (lo confirmó y quedó colgado por un cleanup que falló) → `_ts <= created_at`.
+  // Un cliente RECURRENTE arma su pedido nuevo DESPUÉS de que el viejo ya existe → su `_ts` es MUY posterior al
+  // `created_at` del viejo → NO entra acá. Cubre pedidos terminales (entregado) Y en pipeline, rápido o lento,
+  // resolviendo el caso real (entregado + mismo total + <90 min) que el umbral de tiempo solo no atrapaba.
+  const creadoMs = ultimoPedido.created_at ? Date.parse(ultimoPedido.created_at) : 0;
+  if (creadoMs && estado._ts <= creadoMs + GRACIA_MS) return true;
+  // (c) Fallback sin created_at: en pipeline con el mismo total → duplicado inmediato.
+  return _EN_PIPELINE.has(ultimoPedido.status);
 }
 
 // R4-2 (2026-06-30): total ACUMULADO en vivo = lo ya cerrado (items) + el plato en armado (actual, si ya tiene

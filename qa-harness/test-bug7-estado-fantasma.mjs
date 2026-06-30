@@ -1,6 +1,7 @@
 // BUG7 (2026-06-30) — esEstadoFantasma: no resucitar un pedido ya emitido. DETERMINISTA, sin red.
-// Discriminador = TIEMPO (estado viejo) + duplicado en pipeline. Un cliente recurrente (pedido anterior
-// entregado) armando uno nuevo NO debe ser falso-reseteado.
+// Discriminador = el estado FANTASMA se persistió por última vez ANTES/AL crearse el pedido (lo produjo);
+// un cliente RECURRENTE arma su pedido nuevo DESPUÉS del viejo. Cubre el caso REAL de Alberto:
+// estado CONFIRMAR + mismo total que un pedido ENTREGADO + 48 min (< 90).
 import { esEstadoFantasma, estadoInicial, PASOS } from '../src/flujo-botones.js';
 
 const MENU = {
@@ -13,39 +14,42 @@ const MENU = {
 let fails = 0;
 const check = (c, m) => { console.log((c ? '  OK  ' : 'FAIL  ') + m); if (!c) fails++; };
 
-const NOW = 1_000_000_000_000;
-const FRESH = NOW - 60_000;        // recién persistido (1 min)
-const STALE = NOW - 2 * 3600_000;  // 2 h atrás → viejo
+const NOW = 1_700_000_000_000;
+const iso = (ms) => new Date(ms).toISOString();
 
-// Estado en el resumen (CONFIRMAR) con 1 plato estándar = $7.000, con sello _ts.
+// Estado en el resumen (CONFIRMAR) con 1 plato estándar = $7.000, sello _ts.
 const enConfirmar = (ts) => ({ ...estadoInicial(), paso: PASOS.CONFIRMAR, tipo: 'local', _ts: ts,
   items: [{ proteina: 'Carne Mechada', esEspecial: false, agregados: ['Arroz', 'Tajadas'], bebida: 'Consomé', extras: [], componentes: [] }] });
 
-// 1) CONFIRMAR viejo (stale) → fantasma (EL bug: "hola" 2.5 h después de entregado).
-check(esEstadoFantasma(enConfirmar(STALE), { status: 'entregado', total: 7000 }, MENU, NOW) === true,
-  '🔴 CONFIRMAR viejo (stale) → fantasma (resetea, arranca fresco)');
-// 2) CONFIRMAR RECIENTE + último pedido ENTREGADO → NO fantasma (cliente recurrente armando uno nuevo).
-check(esEstadoFantasma(enConfirmar(FRESH), { status: 'entregado', total: 7000 }, MENU, NOW) === false,
-  '✅ CONFIRMAR reciente + pedido anterior entregado → NO fantasma (sin falso reset al recurrente)');
-// 3) CONFIRMAR reciente + pedido EN PIPELINE mismo total → fantasma (anti-duplicado inmediato).
-check(esEstadoFantasma(enConfirmar(FRESH), { status: 'esperando_comprobante', total: 7000 }, MENU, NOW) === true,
-  'CONFIRMAR reciente + esperando_comprobante mismo total → fantasma (anti-duplicado)');
-// 4) CONFIRMAR reciente + pipeline OTRO total → NO fantasma (2º pedido legítimo).
-check(esEstadoFantasma(enConfirmar(FRESH), { status: 'esperando_comprobante', total: 14000 }, MENU, NOW) === false,
-  'CONFIRMAR reciente + pipeline otro total → NO fantasma (2º pedido)');
-// 5) CONFIRMAR reciente + sin pedido → NO fantasma (confirmación normal).
-check(esEstadoFantasma(enConfirmar(FRESH), null, MENU, NOW) === false,
-  'CONFIRMAR reciente + sin pedido → NO fantasma (confirmación normal)');
-// 6) CONFIRMAR sin _ts (estado de antes del fix) → fantasma (limpieza en transición del deploy).
-check(esEstadoFantasma({ ...enConfirmar(undefined) }, null, MENU, NOW) === true,
-  'CONFIRMAR sin _ts (pre-fix) → fantasma (limpieza de transición)');
-// 7) FIN → fantasma siempre.
-check(esEstadoFantasma({ ...estadoInicial(), paso: PASOS.FIN, _ts: FRESH }, null, MENU, NOW) === true, 'FIN → fantasma');
-// 8) Armando → NUNCA fantasma (aunque viejo o con pedido entregado).
-check(esEstadoFantasma({ ...estadoInicial(), paso: PASOS.ACOMP, _ts: STALE }, { status: 'entregado', total: 7000 }, MENU, NOW) === false,
-  'ACOMP (armando) → NO fantasma aunque viejo');
-check(esEstadoFantasma({ ...estadoInicial(), paso: PASOS.PROTEINA, _ts: STALE }, null, MENU, NOW) === false, 'PROTEINA → NO fantasma');
-// 9) null → false.
+// 1) 🔴 EL CASO REAL DE ALBERTO: estado CONFIRMAR a las T0, pedido creado ~30s después (lo produjo este estado),
+//    ya ENTREGADO, mismo total $7.000, "hola" 48 min después (< 90). DEBE ser fantasma.
+const T0 = NOW - 48 * 60_000;
+check(esEstadoFantasma(enConfirmar(T0), { status: 'entregado', total: 7000, created_at: iso(T0 + 30_000) }, MENU, NOW) === true,
+  '🔴 REAL: CONFIRMAR + mismo total que un ENTREGADO + 48 min (<90) → fantasma (resetea)');
+// 2) ✅ Cliente RECURRENTE: pedido viejo entregado AYER, hoy arma uno nuevo (mismo total) → estado RECIENTE,
+//    _ts MUY posterior al created_at del viejo → NO fantasma.
+check(esEstadoFantasma(enConfirmar(NOW - 60_000), { status: 'entregado', total: 7000, created_at: iso(NOW - 86_400_000) }, MENU, NOW) === false,
+  '✅ RECURRENTE: pedido entregado ayer + arma uno nuevo (mismo total) hoy → NO fantasma (se conserva)');
+// 3) Recurrente con total DISTINTO → NO fantasma.
+check(esEstadoFantasma(enConfirmar(NOW - 60_000), { status: 'entregado', total: 14000, created_at: iso(NOW - 86_400_000) }, MENU, NOW) === false,
+  'Recurrente total distinto → NO fantasma');
+// 4) Pedido EN PIPELINE mismo total (sin created_at) → fantasma (fallback duplicado inmediato).
+check(esEstadoFantasma(enConfirmar(NOW - 60_000), { status: 'esperando_comprobante', total: 7000 }, MENU, NOW) === true,
+  'Pipeline mismo total (sin created_at) → fantasma (anti-duplicado)');
+// 5) Pipeline OTRO total → NO fantasma.
+check(esEstadoFantasma(enConfirmar(NOW - 60_000), { status: 'esperando_comprobante', total: 14000 }, MENU, NOW) === false,
+  'Pipeline otro total → NO fantasma (2º pedido)');
+// 6) STALE (>90 min) → fantasma (fallback temporal).
+check(esEstadoFantasma(enConfirmar(NOW - 2 * 3600_000), { status: 'entregado', total: 7000, created_at: iso(NOW - 2 * 3600_000 + 30_000) }, MENU, NOW) === true,
+  'STALE >90 min → fantasma');
+// 7) Sin _ts (pre-fix) → fantasma (limpieza de transición).
+check(esEstadoFantasma({ ...enConfirmar(undefined) }, null, MENU, NOW) === true, 'CONFIRMAR sin _ts → fantasma');
+// 8) Sin pedido emitido + estado reciente → NO fantasma (confirmación normal).
+check(esEstadoFantasma(enConfirmar(NOW - 60_000), null, MENU, NOW) === false, 'CONFIRMAR reciente + sin pedido → NO fantasma');
+// 9) FIN → fantasma; armando → NO.
+check(esEstadoFantasma({ ...estadoInicial(), paso: PASOS.FIN, _ts: NOW - 60_000 }, null, MENU, NOW) === true, 'FIN → fantasma');
+check(esEstadoFantasma({ ...estadoInicial(), paso: PASOS.ACOMP, _ts: NOW - 2 * 3600_000 }, { status: 'entregado', total: 7000, created_at: iso(NOW - 2 * 3600_000) }, MENU, NOW) === false, 'ACOMP (armando) → NO fantasma');
+// 10) null → false.
 check(esEstadoFantasma(null, { status: 'entregado', total: 7000 }, MENU, NOW) === false, 'estado null → false');
 
 console.log('\n=== RESULTADO ===');
