@@ -48,12 +48,25 @@ function pagedRows(items, idPrefix, offset = 0, mapRow) {
 
 // ── estado inicial ───────────────────────────────────────────────────────────
 export function estadoInicial() {
-  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0, editIdx: null, editAcompIdx: null, editCompIdx: null, solicitud: null, editReturn: null };
+  return { paso: PASOS.PROTEINA, items: [], actual: nuevoItem(), tipo: null, direccion: null, metodo_pago: null, intentos: 0, editIdx: null, editAcompIdx: null, editCompIdx: null, solicitud: null, editReturn: null, agregarReturn: null };
 }
 function nuevoItem() { return { proteina: null, esEspecial: false, agregados: [], bebida: null, extras: [], componentes: [] }; }
 
+// R4-2 (2026-06-30): total ACUMULADO en vivo = lo ya cerrado (items) + el plato en armado (actual, si ya tiene
+// proteína). SIN proyección (Alberto descartó "si agregás sería $X"). Reusa precios.js (no cambia el cobro).
+function totalParcial(estado, menu) {
+  const items = [...(estado?.items || [])];
+  if (estado?.actual && estado.actual.proteina) items.push(estado.actual);
+  if (!items.length) return 0;
+  return calcularPedido(items, estado.tipo, menu, null).total;
+}
+function lineaTotalVivo(estado, menu) {
+  const t = totalParcial(estado, menu);
+  return t > 0 ? `\n\n💰 Total hasta ahora: ${clp(t)}` : '';
+}
+
 // ── render por paso (salidas abstractas) ─────────────────────────────────────
-function renderProteina(menu, offset = 0) {
+function renderProteina(menu, estado = null, offset = 0) {
   const dia = proteinasDisponibles(menu).map((p) => ({ k: 'd', nombre: p.nombre }));
   const esp = especiales(menu).map((e) => ({ k: 'e', nombre: e.nombre, precio: e.precio }));
   const todos = [...dia, ...esp];
@@ -61,14 +74,17 @@ function renderProteina(menu, offset = 0) {
     it.k === 'e'
       ? { id: `prot:${idx}`, title: it.nombre.slice(0, 24), description: `Especial ${clp(it.precio)}` }
       : { id: `prot:${idx}`, title: it.nombre.slice(0, 24) });
-  return { tipo: 'list', text: '¿Qué plato quieres? 🍽️', button: 'Ver platos',
+  // R4-2: si ya hay platos en el pedido (ej. "Agregar otro plato"), mostrar el acumulado. Plato nuevo → no hay actual aún.
+  const tot = estado ? lineaTotalVivo({ ...estado, actual: null }, menu) : '';
+  return { tipo: 'list', text: `¿Qué plato quieres? 🍽️${tot}`, button: 'Ver platos',
     sections: [{ title: 'Menú del día', rows }] };
 }
 // Acompañamientos del PLATO DEL DÍA (solo normal): 2 incluidos gratis. R2-5 (2026-06-30): tope = 2 gratis y
 // punto, NO hay 3er acompañamiento normal pagado → al llegar a 2 el handler avanza SOLO a la bebida (sin
 // preguntar "elige otro +$2.000"). "Listo así" sigue para quien quiere 0 o 1. El especial NO pasa por acá
 // (va bebida → ESP_AGREGAR). Por eso la regla solo informa los gratis restantes; nunca un costo.
-function renderAcomp(menu, actual) {
+function renderAcomp(menu, estado) {
+  const actual = estado.actual;
   const ac = acompañamientos(menu);
   const n = actual.agregados.length;
   const restan = Math.max(0, 2 - n);
@@ -79,14 +95,15 @@ function renderAcomp(menu, actual) {
   // R3-2b (2026-06-30): la salida va PRIMERO (quien no quiere agregar la ve sin scrollear).
   const rows = [{ id: 'ac_listo', title: '✅ Listo así', description: 'No agregar más acompañamientos' },
     ...ac.slice(0, 9).map((nombre, idx) => ({ id: `ac:${idx}`, title: String(nombre).slice(0, 24) }))];
-  return { tipo: 'list', text: `Elige un acompañamiento (${regla}). Llevas ${n}.${lista}`, button: 'Ver opciones',
+  return { tipo: 'list', text: `Elige un acompañamiento (${regla}). Llevas ${n}.${lista}${lineaTotalVivo(estado, menu)}`, button: 'Ver opciones',
     sections: [{ title: '2 incluidos gratis', rows }] };
 }
 // R2-4 (2026-06-30) — paso COMBINADO del ESPECIAL: un solo "¿agregar algo más? ($2.000 c/u)" con la lista
 // unificada acompañamientos + extras, TODO pagado a $2.000. Reemplaza los 2 pasos del especial (el normal NO
 // combina: ahí los gratis y los pagados van separados para no confundir). R2-7: el precio va en la BAJADA de
 // cada fila ("Especial $2.000"), nunca en el título (se trunca). Ids: ac:i (acompañamiento) / ex:i (extra).
-function renderEspAgregar(menu, actual) {
+function renderEspAgregar(menu, estado) {
+  const actual = estado.actual;
   const ac = acompañamientos(menu);
   const ex = extras(menu); // R3-3 (2026-06-30): TODOS los extras, REPETIBLES (no se filtran los ya elegidos).
   const yaTiene = (actual.agregados.length + (actual.extras?.length ?? 0)) > 0;
@@ -96,40 +113,42 @@ function renderEspAgregar(menu, actual) {
   // R3-2b: la salida va PRIMERO; reservo su fila → el resto cabe en MAX_ROWS-1.
   const salida = { id: 'esp_listo', title: yaTiene ? '✅ Listo' : 'No, seguir', description: 'No agregar nada más' };
   const rows = [salida, ...opts.slice(0, MAX_ROWS - 1)];
-  return { tipo: 'list', text: '¿Querés agregar algo más? (cada uno cuesta $2.000)', button: 'Ver opciones', // R3-2a
+  return { tipo: 'list', text: `¿Querés agregar algo más? (cada uno cuesta $2.000)${lineaTotalVivo(estado, menu)}`, button: 'Ver opciones', // R3-2a
     sections: [{ title: 'Agregados del especial', rows }] };
 }
-function renderBebida(menu) {
+function renderBebida(menu, estado) {
   const bs = bebidas(menu);
   const btns = bs.slice(0, 2).map((b, i) => ({ id: `beb:${i}`, title: String(b).slice(0, 20) }));
   btns.push({ id: 'beb_no', title: 'Sin bebida' });
-  return { tipo: 'buttons', text: '¿Qué bebida? (incluida) 🥤', buttons: btns.slice(0, 3) };
+  return { tipo: 'buttons', text: `¿Qué bebida? (incluida) 🥤${estado ? lineaTotalVivo(estado, menu) : ''}`, buttons: btns.slice(0, 3) };
 }
 // Paso de extras (solo plato del día) — selección DIRECTA: 0 extras en el menú → el caller saltea el paso;
 // 1-2 → reply buttons directos (extra(s) + salida); ≥3 → List con la salida PRIMERO (R3-2b). R3-3: los extras
 // son REPETIBLES (no se filtran los ya elegidos). Los ids usan el índice ORIGINAL del menú (precios.js matchea por índice).
-function renderExtras(menu, actual) {
+function renderExtras(menu, estado) {
+  const actual = estado.actual;
   const all = extras(menu); // R3-3 (2026-06-30): TODOS los extras, REPETIBLES (no se filtran los ya elegidos).
   if (!all.length) return null; // nada que ofrecer → avanzar
   const yaTiene = (actual?.extras ?? []).length > 0;
   const cab = yaTiene ? '¿Otro extra?' : '¿Querés agregar un extra? (opcional)';
+  const tot = lineaTotalVivo(estado, menu); // R4-2: acumulado en vivo (clave en la re-pregunta de "¿otro extra?")
   const salir = { id: 'ex_no', title: yaTiene ? '✅ Listo' : 'No, seguir' };
   // R2-3 (2026-06-30): el precio NUNCA en el label del botón (se trunca, ~20 chars) → va en el TEXTO de arriba.
   if (all.length <= 2) {
     const lista = '\n' + all.map((e) => `· ${e.nombre} — ${clp(e.precio)}`).join('\n');
     const btns = all.map((e, idx) => ({ id: `ex:${idx}`, title: String(e.nombre).slice(0, 20) }));
     btns.push(salir);
-    return { tipo: 'buttons', text: cab + lista, buttons: btns.slice(0, 3) };
+    return { tipo: 'buttons', text: cab + lista + tot, buttons: btns.slice(0, 3) };
   }
   // R3-2b: la salida va PRIMERO. R2-7: en el List el precio va en la BAJADA ("Especial $2.000"), no en el título.
   const rows = [{ id: 'ex_no', title: salir.title, description: 'No agregar más' },
     ...all.slice(0, 9).map((e, idx) => ({ id: `ex:${idx}`, title: String(e.nombre).slice(0, 24), description: `Especial ${clp(e.precio)}` }))];
-  return { tipo: 'list', text: cab, button: 'Ver opciones', sections: [{ title: 'Extras pagados', rows }] };
+  return { tipo: 'list', text: cab + tot, button: 'Ver opciones', sections: [{ title: 'Extras pagados', rows }] };
 }
 // Entra al paso de extras (o lo saltea si el menú no tiene extras).
 function entrarExtras(e, menu) {
   e.paso = PASOS.EXTRAS;
-  const r = renderExtras(menu, e.actual);
+  const r = renderExtras(menu, e);
   return r ? { estado: e, salidas: [r] } : avanzarTrasExtras(e, menu);
 }
 // Entra al paso COMBINADO del especial (R2-4): acompañamientos + extras, todo $2.000. Si el menú no tiene ni
@@ -137,11 +156,18 @@ function entrarExtras(e, menu) {
 function entrarEspAgregar(e, menu) {
   if (!acompañamientos(menu).length && !extras(menu).length) return avanzarTrasExtras(e, menu);
   e.paso = PASOS.ESP_AGREGAR;
-  return { estado: e, salidas: [renderEspAgregar(menu, e.actual)] };
+  return { estado: e, salidas: [renderEspAgregar(menu, e)] };
 }
 // Cierra el ítem actual y va a "¿otro menú o seguir?" (o modalidad si llegó al tope de ítems).
 function avanzarTrasExtras(e, menu) {
   e.items.push(e.actual); e.actual = nuevoItem();
+  // R4-1 (2026-06-30): si el plato se armó vía "Agregar otro plato" desde la edición, volver al ORIGEN de la
+  // edición (resumen final o "¿otro menú?") en vez de re-preguntar modalidad/pago (ya elegidos).
+  if (e.agregarReturn) {
+    const dest = e.agregarReturn; e.agregarReturn = null;
+    if (dest === PASOS.MAS_MENUS) { e.paso = PASOS.MAS_MENUS; return { estado: e, salidas: [renderMasMenus(e, menu)] }; }
+    e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [renderResumen(e, menu).salida] };
+  }
   if (e.items.length >= MAX_ITEMS) { e.paso = PASOS.MODALIDAD; return { estado: e, salidas: [botonesModalidad()] }; }
   e.paso = PASOS.MAS_MENUS; return { estado: e, salidas: [renderMasMenus(e, menu)] };
 }
@@ -224,7 +250,10 @@ function renderEditPick(estado, offset = 0) {
       const det = [...(it.agregados || []), it.bebida].filter(Boolean).join(', ');
       return { id: `ep:${idx}`, title: nombreItem(it).slice(0, 24), ...(det ? { description: det.slice(0, 72) } : {}) };
     }, 'ep_volver', '↩ Volver');
-  return { tipo: 'list', text: '¿Qué plato querés editar?', button: 'Editar plato', sections: [{ title: 'Tus platos', rows }] };
+  // R4-1 (2026-06-30): sumar un PLATO COMPLETO nuevo al pedido (≠ R3-4 "Agregar algo más", que es DENTRO de un
+  // plato). Va antes del "↩ Volver".
+  rows.splice(Math.max(0, rows.length - 1), 0, { id: 'ep_nuevo', title: '➕ Agregar otro plato', description: 'Sumá un plato nuevo al pedido' });
+  return { tipo: 'list', text: '¿Qué plato querés editar? (o sumá uno nuevo)', button: 'Editar plato', sections: [{ title: 'Tus platos', rows }] };
 }
 function renderEditItem(estado, menu) {
   const it = estado.items[estado.editIdx];
@@ -449,7 +478,7 @@ export function procesar(estado, input, menu) {
   switch (e.paso) {
     case PASOS.PROTEINA: {
       const mMore = id.match(/^prot:more:(\d+)$/);
-      if (mMore) return { estado: e, salidas: [renderProteina(menu, Number(mMore[1]))] };
+      if (mMore) return { estado: e, salidas: [renderProteina(menu, e, Number(mMore[1]))] };
       const m = id.match(/^prot:(\d+)$/);
       if (!m) return reRender();
       const dia = proteinasDisponibles(menu);
@@ -475,9 +504,9 @@ export function procesar(estado, input, menu) {
       // R2-2 (2026-06-30): el ESPECIAL pregunta primero la BEBIDA (incluida), y los acompañamientos EXTRA
       // (pagados) van DESPUÉS, combinados con los extras en un solo paso (R2-4). Lo opcional con costo al final.
       // El menú del DÍA (cupo 2) va directo a elegir sus 2 acompañamientos incluidos.
-      if (e.actual.esEspecial) { e.paso = PASOS.BEBIDA; return { estado: e, salidas: [renderBebida(menu)] }; }
+      if (e.actual.esEspecial) { e.paso = PASOS.BEBIDA; return { estado: e, salidas: [renderBebida(menu, e)] }; }
       e.paso = PASOS.ACOMP;
-      return { estado: e, salidas: [renderAcomp(menu, e.actual)] };
+      return { estado: e, salidas: [renderAcomp(menu, e)] };
     }
     case PASOS.ACOMP: {
       // Solo plato del día. R2-5 (2026-06-30): 2 gratis y punto → al llegar a 2 avanza SOLO a la bebida (sin
@@ -487,10 +516,10 @@ export function procesar(estado, input, menu) {
         const ac = acompañamientos(menu);
         const idx = Number(m[1]);
         if (idx >= 0 && idx < ac.length && e.actual.agregados.length < 2) e.actual.agregados.push(ac[idx]);
-        if (e.actual.agregados.length >= 2) { e.paso = PASOS.BEBIDA; return { estado: e, salidas: [renderBebida(menu)] }; }
-        return { estado: e, salidas: [renderAcomp(menu, e.actual)] };
+        if (e.actual.agregados.length >= 2) { e.paso = PASOS.BEBIDA; return { estado: e, salidas: [renderBebida(menu, e)] }; }
+        return { estado: e, salidas: [renderAcomp(menu, e)] };
       }
-      if (id === 'ac_listo') { e.paso = PASOS.BEBIDA; return { estado: e, salidas: [renderBebida(menu)] }; }
+      if (id === 'ac_listo') { e.paso = PASOS.BEBIDA; return { estado: e, salidas: [renderBebida(menu, e)] }; }
       return reRender();
     }
     case PASOS.BEBIDA: {
@@ -508,13 +537,13 @@ export function procesar(estado, input, menu) {
       if (ma) {
         const ac = acompañamientos(menu); const idx = Number(ma[1]);
         if (idx >= 0 && idx < ac.length && e.actual.agregados.length < MAX_ACOMP) e.actual.agregados.push(ac[idx]);
-        return { estado: e, salidas: [renderEspAgregar(menu, e.actual)] };
+        return { estado: e, salidas: [renderEspAgregar(menu, e)] };
       }
       const mx = id.match(/^ex:(\d+)$/);
       if (mx) {
         const ex = extras(menu)[Number(mx[1])];
         if (ex && e.actual.extras.length < MAX_ACOMP) e.actual.extras.push(ex.nombre); // R3-3: repetible (sin dedup)
-        return { estado: e, salidas: [renderEspAgregar(menu, e.actual)] };
+        return { estado: e, salidas: [renderEspAgregar(menu, e)] };
       }
       if (id === 'esp_listo') return avanzarTrasExtras(e, menu);
       return reRender();
@@ -524,14 +553,14 @@ export function procesar(estado, input, menu) {
       if (m) {
         const ex = extras(menu)[Number(m[1])];
         if (ex && e.actual.extras.length < MAX_ACOMP) e.actual.extras.push(ex.nombre); // R3-3: repetible (sin dedup)
-        const r = renderExtras(menu, e.actual);
+        const r = renderExtras(menu, e);
         return r ? { estado: e, salidas: [r] } : avanzarTrasExtras(e, menu); // sin extras en el menú → avanzar
       }
       if (id === 'ex_no') return avanzarTrasExtras(e, menu);
       return reRender();
     }
     case PASOS.MAS_MENUS: {
-      if (id === 'mm_otro') { e.paso = PASOS.PROTEINA; return { estado: e, salidas: [renderProteina(menu)] }; }
+      if (id === 'mm_otro') { e.paso = PASOS.PROTEINA; return { estado: e, salidas: [renderProteina(menu, e)] }; }
       if (id === 'mm_editar') { e.editReturn = PASOS.MAS_MENUS; e.paso = PASOS.EDIT_PICK; return { estado: e, salidas: [renderEditPick(e)] }; }
       if (id === 'mm_seguir') { e.paso = PASOS.MODALIDAD; return { estado: e, salidas: [botonesModalidad()] }; }
       return reRender();
@@ -566,13 +595,13 @@ export function procesar(estado, input, menu) {
       if (id === 'conf_reset') { e.paso = PASOS.RESET_CONFIRM; return { estado: e, salidas: [botonesResetConfirm()] }; }
       // Ajuste especial PENDIENTE (§8): "Agregar otro menú" aprovecha la espera del local armando otro plato
       // (el ajuste sigue pendiente al volver al resumen); "Seguir sin el especial" descarta el ajuste y cierra.
-      if (id === 'mm_otro') { e.paso = PASOS.PROTEINA; return { estado: e, salidas: [renderProteina(menu)] }; }
+      if (id === 'mm_otro') { e.paso = PASOS.PROTEINA; return { estado: e, salidas: [renderProteina(menu, e)] }; }
       if (id === 'conf_sin_ajuste') { e.solicitud = null; e.paso = PASOS.FIN; return { estado: e, salidas: [{ tipo: 'text', text: cierreTexto(e) }], pedido: armarPedido(e, menu) }; }
       if (id === 'conf_esperar') { return { estado: e, salidas: [renderResumen(e, menu).salida] }; } // defensivo (botón removido §8)
       return reRender();
     }
     case PASOS.RESET_CONFIRM: {
-      if (id === 'reset_si') { const ne = estadoInicial(); return { estado: ne, salidas: [renderProteina(menu)] }; }
+      if (id === 'reset_si') { const ne = estadoInicial(); return { estado: ne, salidas: [renderProteina(menu, ne)] }; }
       if (id === 'reset_no') { e.paso = PASOS.CONFIRMAR; return { estado: e, salidas: [renderResumen(e, menu).salida] }; }
       return reRender();
     }
@@ -580,6 +609,9 @@ export function procesar(estado, input, menu) {
       const mMore = id.match(/^ep:more:(\d+)$/);
       if (mMore) return { estado: e, salidas: [renderEditPick(e, Number(mMore[1]))] };
       if (id === 'ep_volver') return vuelveEdicion(e, menu);
+      // R4-1: "Agregar otro plato" → armar un plato COMPLETO nuevo (flujo de armado). Al cerrarlo, avanzarTrasExtras
+      // vuelve al ORIGEN de la edición (resumen/¿otro menú?) gracias a agregarReturn, sin re-preguntar modalidad.
+      if (id === 'ep_nuevo') { e.agregarReturn = e.editReturn || PASOS.CONFIRMAR; e.editReturn = null; e.actual = nuevoItem(); e.paso = PASOS.PROTEINA; return { estado: e, salidas: [renderProteina(menu, e)] }; }
       const m = id.match(/^ep:(\d+)$/);
       if (m) { const idx = Number(m[1]); if (idx >= 0 && idx < e.items.length) { e.editIdx = idx; e.paso = PASOS.EDIT_ITEM; return { estado: e, salidas: [renderEditItem(e, menu)] }; } }
       return reRender();
@@ -592,13 +624,13 @@ export function procesar(estado, input, menu) {
         if (!tiene) return { estado: e, salidas: [renderEditItem(e, menu)] };
         e.paso = PASOS.EDIT_PARTE_FROM; return { estado: e, salidas: [renderEditParteFrom(e)] };
       }
-      if (id === 'ei_bebida') { e.paso = PASOS.EDIT_BEBIDA; return { estado: e, salidas: [renderBebida(menu)] }; }
+      if (id === 'ei_bebida') { e.paso = PASOS.EDIT_BEBIDA; return { estado: e, salidas: [renderBebida(menu, e)] }; }
       if (id === 'ei_agregar') { e.paso = PASOS.EDIT_AGREGAR; return { estado: e, salidas: [renderEditAgregar(e, menu)] }; }
       if (id === 'ei_especial') { e.paso = PASOS.EDIT_ESPECIAL_TXT; return { estado: e, salidas: [{ tipo: 'text', text: 'Escribime qué te gustaría que no está en el menú 🙂. Se lo paso al local y lo confirman antes de cerrar.' }] }; }
       if (id === 'ei_quitar') {
         if (e.editIdx != null) e.items.splice(e.editIdx, 1);
         e.editIdx = null;
-        if (!e.items.length) { const ne = estadoInicial(); return { estado: ne, salidas: [{ tipo: 'text', text: 'Quité el plato y quedó vacío el pedido. Armemos uno nuevo 🙂' }, renderProteina(menu)] }; }
+        if (!e.items.length) { const ne = estadoInicial(); return { estado: ne, salidas: [{ tipo: 'text', text: 'Quité el plato y quedó vacío el pedido. Armemos uno nuevo 🙂' }, renderProteina(menu, ne)] }; }
         return vuelveEdicion(e, menu, 'Listo, quité el plato.');
       }
       return reRender();
@@ -710,11 +742,11 @@ function cierreTexto(e) {
 // Re-render del paso actual (para idempotencia / inputs inválidos).
 function renderPaso(e, menu) {
   switch (e.paso) {
-    case PASOS.PROTEINA: return renderProteina(menu);
-    case PASOS.ACOMP: return renderAcomp(menu, e.actual);
-    case PASOS.BEBIDA: return renderBebida(menu);
-    case PASOS.ESP_AGREGAR: return renderEspAgregar(menu, e.actual);
-    case PASOS.EXTRAS: return renderExtras(menu, e.actual) ?? renderMasMenus(e, menu);
+    case PASOS.PROTEINA: return renderProteina(menu, e);
+    case PASOS.ACOMP: return renderAcomp(menu, e);
+    case PASOS.BEBIDA: return renderBebida(menu, e);
+    case PASOS.ESP_AGREGAR: return renderEspAgregar(menu, e);
+    case PASOS.EXTRAS: return renderExtras(menu, e) ?? renderMasMenus(e, menu);
     case PASOS.MAS_MENUS: return renderMasMenus(e, menu);
     case PASOS.MODALIDAD: return botonesModalidad();
     case PASOS.DIRECCION: return { tipo: 'text', text: 'Escríbeme la dirección (calle, número, depto).' };
@@ -726,7 +758,7 @@ function renderPaso(e, menu) {
     case PASOS.EDIT_ITEM: return renderEditItem(e, menu);
     case PASOS.EDIT_PARTE_FROM: return renderEditParteFrom(e);
     case PASOS.EDIT_ACOMP_TO: return renderEditAcompTo(e, menu);
-    case PASOS.EDIT_BEBIDA: return renderBebida(menu);
+    case PASOS.EDIT_BEBIDA: return renderBebida(menu, e);
     case PASOS.EDIT_AGREGAR: return renderEditAgregar(e, menu);
     case PASOS.EDIT_COMP_TO: return renderEditCompTo(e, menu);
     case PASOS.EDIT_ESPECIAL_TXT: return { tipo: 'text', text: 'Escribime qué querés (algo que no está en el menú).' };

@@ -416,6 +416,32 @@ check(/⚠️.*dirección/i.test(rZ.last.text), 'R3-5: delivery → aviso ⚠️
 let rZ2 = correr(['prot:0', 'ac:0', 'ac:1', 'beb:0', 'ex_no', 'mm_seguir', 'mod_local', 'pay_local']);
 check(!/⚠️.*dirección/i.test(rZ2.last.text), 'R3-5: retiro local → SIN aviso de dirección');
 
+console.log('\n=== AA) R4-1: "Agregar otro plato" en Editar → arma plato nuevo y vuelve al resumen ===');
+// Pedido normal hasta el resumen final (retiro local, pagado). Editar → Agregar otro plato → armar un 2º.
+let stAA = estadoInicial();
+for (const s of hastaResumen) { stAA = procesar(stAA, { tipo: s.startsWith('prot') || s.startsWith('ac:') || s.startsWith('beb:') ? 'list' : 'button', id: s }, MENU).estado; }
+// en CONFIRMAR → Editar → ver la opción.
+let sPickAA = procesar(procesar(stAA, { tipo: 'button', id: 'conf_editar' }, MENU).estado, { tipo: 'list', id: '__rr__' }, MENU).salidas.slice(-1)[0];
+check((sPickAA.sections?.[0]?.rows || []).some((r) => r.id === 'ep_nuevo'), 'R4-1: "Editar" ofrece "➕ Agregar otro plato" (ep_nuevo)');
+// Flujo completo: conf_editar → ep_nuevo → armar 2º plato (prot:1, 2 acomp, bebida, sin extra) → vuelve al resumen, confirma.
+let rAA = correr([...hastaResumen, 'conf_editar', 'ep_nuevo', 'prot:1', 'ac:0', 'ac:1', 'beb:0', 'ex_no', 'conf_si']);
+check(rAA.pedido?.items?.length === 2, `R4-1: el pedido quedó con 2 platos (got ${rAA.pedido?.items?.length})`);
+check(rAA.pedido?.total === 14000, `R4-1: total = $14.000 (2 × $7.000) sin re-preguntar modalidad (got ${rAA.pedido?.total})`);
+check(rAA.pedido?.metodo_pago === 'en_local' && rAA.pedido?.tipo === 'local', 'R4-1: conserva modalidad/pago ya elegidos (no re-pregunta)');
+
+console.log('\n=== AB) R4-2: total acumulado EN VIVO durante el armado ===');
+// Tras elegir proteína normal, el paso de acompañamientos muestra el total corriente ($7.000 con el plato base).
+let stAB = procesar(estadoInicial(), { tipo: 'list', id: 'prot:0' }, MENU);
+check(/💰 Total hasta ahora: \$7\.000/.test(stAB.salidas.slice(-1)[0].text), `R4-2: ACOMP muestra "Total hasta ahora: $7.000" (got: "${stAB.salidas.slice(-1)[0].text.split('\n').find((l) => /Total hasta/.test(l)) || '?'}")`);
+// Caso papas (Alberto): especial + 2 papas → el paso combinado muestra el acumulado subiendo.
+let stAB2 = correr(['prot:3', 'beb:0', 'ex:0']); // Albacora $9.000 + 1 papas $2.000 = $11.000
+const sAggAB = procesar(stAB2.estado, { tipo: 'list', id: '__rr__' }, MENU).salidas.slice(-1)[0];
+check(/💰 Total hasta ahora: \$11\.000/.test(sAggAB.text), `R4-2: tras 1 papas el combinado muestra $11.000 (got: "${sAggAB.text.split('\n').find((l) => /Total hasta/.test(l)) || '?'}")`);
+// NO es proyección: el total mostrado es el ACUMULADO actual, no "si agregás sería".
+check(!/si agregás|sería/i.test(sAggAB.text), 'R4-2: muestra el ACUMULADO, no una proyección');
+// En PROTEINA del 1er plato (sin nada aún) NO se muestra total (0).
+check(!/Total hasta ahora/.test(procesar(estadoInicial(), { tipo: 'init' }, MENU).salidas.slice(-1)[0].text), 'R4-2: sin items todavía → no muestra total');
+
 console.log('\n=== RESULTADO ===');
-console.log(fails ? `${fails} FALLO(S)` : `TODO OK (${27} escenarios)`);
+console.log(fails ? `${fails} FALLO(S)` : `TODO OK (${29} escenarios)`);
 process.exit(fails ? 1 : 0);
