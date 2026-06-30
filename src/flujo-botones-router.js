@@ -3,11 +3,11 @@
 //
 // Cadena por turno: cargar estado (wizard) → procesar(input) → guardar estado → enviar salidas →
 // si emite pedido: crearPedido + push al dueño + borrar estado.
-import { procesar, estadoInicial, saludoInicial, renderMenuCliente, PASOS } from './flujo-botones.js';
+import { procesar, estadoInicial, saludoInicial, renderMenuCliente, esEstadoFantasma, PASOS } from './flujo-botones.js';
 import { getActiveMenu } from './active-menu.js';
 import {
   getEstadoFlujo, setEstadoFlujo, borrarEstadoFlujo, crearPedido,
-  crearSolicitudEspecial, getSolicitudEspecial,
+  crearSolicitudEspecial, getSolicitudEspecial, estadoUltimoPedido,
 } from './pedidos-client.js';
 import { enviarPushEquipo } from './push.js';
 import { escalarAHumano } from './comunicaciones-client.js';
@@ -53,6 +53,7 @@ async function enviar(sock, jid, salidas) {
 // setEstadoFlujo ya reintenta ante 5xx; este catch es la última red para que el envío nunca se caiga.
 async function persistir(jid, estado, logger) {
   try {
+    if (estado) estado._ts = Date.now(); // BUG7: sello de tiempo para detectar estados FANTASMA (viejos) al cargar
     await setEstadoFlujo(jid, estado);
     return true;
   } catch (e) {
@@ -87,6 +88,19 @@ async function finalizar(sock, jid, senderName, pedido, logger) {
 export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto, logger }) {
   const menu = getActiveMenu();
   let estado = await getEstadoFlujo(jid).catch(() => null);
+
+  // BUG7 (2026-06-30): NO resucitar un pedido ya emitido. Si la sesión quedó colgada en el resumen (CONFIRMAR)
+  // o al final (FIN) — típicamente porque el cleanup falló tras un 5xx al confirmar — y el cliente ya tiene un
+  // pedido cerrado/en pipeline que coincide, el estado es un FANTASMA → lo limpiamos y arrancamos fresco (abajo,
+  // por el branch !estado: saludo + menú). Así un "hola" tras un pedido entregado NO re-ofrece Confirmar/Editar.
+  if (estado && (estado.paso === PASOS.FIN || estado.paso === PASOS.CONFIRMAR)) {
+    const ult = estado.paso === PASOS.CONFIRMAR ? await estadoUltimoPedido(jid).catch(() => null) : null;
+    if (esEstadoFantasma(estado, ult, menu, Date.now())) {
+      logger?.info?.({ jid, paso: estado.paso, ultStatus: ult?.status }, 'BUG7: estado fantasma de pedido ya emitido → reseteo + arranco fresco');
+      await borrarEstadoFlujo(jid).catch(() => {});
+      estado = null;
+    }
+  }
 
   // Primer contacto / sin estado → saludo + arranque del árbol (render del primer paso).
   if (!estado) {

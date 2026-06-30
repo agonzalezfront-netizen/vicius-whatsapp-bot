@@ -52,6 +52,31 @@ export function estadoInicial() {
 }
 function nuevoItem() { return { proteina: null, esEspecial: false, agregados: [], bebida: null, extras: [], componentes: [] }; }
 
+// BUG7 (2026-06-30): detecta si el estado de botones es un FANTASMA de un pedido YA EMITIDO. Pasa cuando la
+// sesión queda colgada en el resumen (CONFIRMAR) o al final (FIN) porque el cleanup del estado falló tras un
+// 5xx al confirmar → al volver a escribir, el bot resucitaría el pedido (botones Confirmar/Editar) y el cliente
+// podría re-confirmar un DUPLICADO. PURA y testeable; el router hace el IO + pasa la hora actual.
+// Discriminador LIMPIO = TIEMPO: un armado real se completa en minutos; un fantasma quedó viejo desde la
+// confirmación. Por eso NO reseteo por "último pedido terminal" (eso false-resetearía a un cliente recurrente
+// que arma un pedido nuevo y su pedido anterior está entregado). `ultimoPedido` = {status,total} o null.
+// `ahoraMs`/`estado._ts` (sello que pone el router al persistir) → staleness.
+const STALE_MS = 90 * 60 * 1000; // 90 min: nadie arma un pedido por botones tanto tiempo; sí es ghost.
+const _EN_PIPELINE = new Set(['esperando_comprobante', 'pendiente_validacion', 'en_cocina', 'validado', 'en_camino', 'listo']);
+export function esEstadoFantasma(estado, ultimoPedido, menu, ahoraMs) {
+  if (!estado) return false;
+  if (estado.paso === PASOS.FIN) return true;        // flujo completado: no debería sobrevivir
+  if (estado.paso !== PASOS.CONFIRMAR) return false; // mientras ARMA (proteína/acomp/…) NO es fantasma
+  // (a) STALE: estado viejo (o sin sello, de antes del fix) en el resumen → fantasma. Sin falsos positivos: un
+  // armado real recién persistido tiene _ts reciente.
+  if (ahoraMs && (!estado._ts || (ahoraMs - estado._ts) > STALE_MS)) return true;
+  // (b) DUPLICADO inmediato (dentro de la ventana stale): hay un pedido EN PIPELINE con el MISMO total → es ese
+  // mismo pedido ya emitido; re-confirmar lo duplicaría. (Solo pipeline: un pedido entregado puede ser de un
+  // cliente recurrente armando otro igual → NO es fantasma si su estado es reciente.)
+  if (!ultimoPedido || !_EN_PIPELINE.has(ultimoPedido.status)) return false;
+  const t = calcularPedido(estado.items ?? [], estado.tipo, menu, null).total;
+  return Number(ultimoPedido.total) === t;
+}
+
 // R4-2 (2026-06-30): total ACUMULADO en vivo = lo ya cerrado (items) + el plato en armado (actual, si ya tiene
 // proteína). SIN proyección (Alberto descartó "si agregás sería $X"). Reusa precios.js (no cambia el cobro).
 function totalParcial(estado, menu) {
