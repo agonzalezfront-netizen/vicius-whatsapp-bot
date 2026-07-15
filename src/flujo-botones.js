@@ -114,6 +114,11 @@ function renderProteina(menu, estado = null, offset = 0) {
   const dia = proteinasDisponibles(menu).map((p) => ({ k: 'd', nombre: p.nombre }));
   const esp = especiales(menu).map((e) => ({ k: 'e', nombre: e.nombre, precio: e.precio }));
   const todos = [...dia, ...esp];
+  // Guard (bug del menú vacío): si no hay proteínas ni especiales (menú sin publicar o todo agotado),
+  // WhatsApp NO acepta una lista con 0 filas → el flujo se rompía. Avisamos honesto en vez de mandar lista vacía.
+  if (todos.length === 0) {
+    return { tipo: 'text', text: 'El menú de hoy todavía no está publicado 🙂. Escríbenos por WhatsApp y te avisamos apenas esté listo 🙏' };
+  }
   const rows = pagedRows(todos, 'prot', offset, (it, idx) =>
     it.k === 'e'
       ? { id: `prot:${idx}`, title: it.nombre.slice(0, 24), description: `Especial ${clp(it.precio)}` }
