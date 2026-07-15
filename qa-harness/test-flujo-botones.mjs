@@ -357,7 +357,7 @@ check(ped6?.items?.[0]?.cambios?.some((c) => c.de === 'porotos negros' && c.a ==
 console.log('\n=== U) R2-1: menú de inicio — cada ítem con "·" en su línea ===');
 const menuTxt = renderMenuCliente(MENU).text;
 check(/🥗 \*Acompañamientos\*[^\n]*:\n · /.test(menuTxt), 'R2-1: acompañamientos van con "·" en líneas (no pegados con comas)');
-check(/elegí una/.test(menuTxt) && /🥤 \*Bebida incluida\*[^\n]*:\n · /.test(menuTxt), 'R2-1: bebida "(elegí una)" con puntos');
+check(/elige una/.test(menuTxt) && /🥤 \*Bebida incluida\*[^\n]*:\n · /.test(menuTxt), 'R2-1: bebida "(elige una)" con puntos');
 check(/➕ \*Extras\*:\n · /.test(menuTxt), 'R2-1: extras con "·" en líneas');
 check(!/Acompañamientos\* \(2 incluidos[^\n]*\): [A-Z]/.test(menuTxt), 'R2-1: NO quedan ítems pegados con comas tras los dos puntos');
 

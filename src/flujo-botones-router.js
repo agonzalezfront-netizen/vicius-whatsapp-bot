@@ -3,7 +3,7 @@
 //
 // Cadena por turno: cargar estado (wizard) → procesar(input) → guardar estado → enviar salidas →
 // si emite pedido: crearPedido + push al dueño + borrar estado.
-import { procesar, estadoInicial, saludoInicial, renderMenuCliente, esEstadoFantasma, PASOS } from './flujo-botones.js';
+import { procesar, estadoInicial, saludoInicial, renderMenuCliente, esEstadoFantasma, sesionExpirada, PASOS } from './flujo-botones.js';
 import { getActiveMenu } from './active-menu.js';
 import {
   getEstadoFlujo, setEstadoFlujo, borrarEstadoFlujo, crearPedido,
@@ -88,6 +88,16 @@ async function finalizar(sock, jid, senderName, pedido, logger) {
 export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto, logger }) {
   const menu = getActiveMenu();
   let estado = await getEstadoFlujo(jid).catch(() => null);
+
+  // BUG4 (2026-07-15): TTL de sesión. Un estado mid-flow que quedó viejo (cliente que abandonó el pedido
+  // horas/días atrás) NO debe sobrevivir: al escribir "hola" para pedir de nuevo recibía "No te entendí"
+  // porque el bot seguía en el paso viejo. Si el estado superó el TTL, lo descartamos → cae al branch
+  // !estado (saludo + menú fresco). Cubre el caso real de Alberto (8 días atascado en Carne Mechada).
+  if (estado && sesionExpirada(estado, Date.now())) {
+    logger?.info?.({ jid, paso: estado.paso, edadMin: estado._ts ? Math.round((Date.now() - estado._ts) / 60000) : null }, 'BUG4: sesión expirada por TTL → reseteo + arranco fresco');
+    await borrarEstadoFlujo(jid).catch(() => {});
+    estado = null;
+  }
 
   // BUG7 (2026-06-30): NO resucitar un pedido ya emitido. Si la sesión quedó colgada en el resumen (CONFIRMAR)
   // o al final (FIN) — típicamente porque el cleanup falló tras un 5xx al confirmar — y el cliente ya tiene un

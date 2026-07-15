@@ -52,6 +52,17 @@ export function estadoInicial() {
 }
 function nuevoItem() { return { proteina: null, esEspecial: false, agregados: [], bebida: null, extras: [], componentes: [] }; }
 
+// BUG4 (2026-07-15): TTL de sesión. Un estado mid-flow que quedó viejo (cliente que abandonó el pedido
+// horas/días atrás) no debe sobrevivir: escribir "hola" para pedir de nuevo devolvía "No te entendí"
+// porque el bot seguía en el paso viejo. El router descarta el estado expirado → arranca fresco (saludo+menú).
+// PURA y testeable; el router pasa la hora actual. 3 h cubre el caso real (sesión de otro día) sin
+// false-resetear a alguien que se distrajo unos minutos armando.
+export const TTL_SESION_MS = 3 * 60 * 60 * 1000;
+export function sesionExpirada(estado, ahoraMs, ttlMs = TTL_SESION_MS) {
+  if (!estado || !estado._ts) return false;
+  return (ahoraMs - estado._ts) > ttlMs;
+}
+
 // BUG7 (2026-06-30): detecta si el estado de botones es un FANTASMA de un pedido YA EMITIDO. Pasa cuando la
 // sesión queda colgada en el resumen (CONFIRMAR) o al final (FIN) porque el cleanup del estado falló tras un
 // 5xx al confirmar → al volver a escribir, el bot resucitaría el pedido (botones Confirmar/Editar) y el cliente
@@ -237,7 +248,7 @@ function renderResumen(estado, menu) {
   // El [✅ Confirmar] aparece DESPUÉS, cuando el local resuelve (panel B-3) y el bot re-emite el resumen.
   if (sol && sol.status === 'pendiente') {
     const txt = construirResumen(calc) + dirTxt
-      + `\n\n⏳ Tu pedido especial ("${sol.descripcion}") quedó pendiente: el local lo revisa y te confirma el costo en un momento. Te aviso apenas esté. Mientras, podés agregar otro plato, editar, o seguir sin ese ajuste.`;
+      + `\n\n⏳ Tu pedido especial ("${sol.descripcion}") quedó pendiente: el local lo revisa y te confirma el costo en un momento. Te aviso apenas esté. Mientras, puedes agregar otro plato, editar, o seguir sin ese ajuste.`;
     return { calc, salida: { tipo: 'buttons', text: txt, buttons: [
       { id: 'mm_otro', title: '➕ Otro menú' },
       { id: 'conf_editar', title: '✏️ Editar' },
@@ -286,7 +297,7 @@ function renderEditPick(estado, offset = 0) {
   // R4-1 (2026-06-30): sumar un PLATO COMPLETO nuevo al pedido (≠ R3-4 "Agregar algo más", que es DENTRO de un
   // plato). Va antes del "↩ Volver".
   rows.splice(Math.max(0, rows.length - 1), 0, { id: 'ep_nuevo', title: '➕ Agregar otro plato', description: 'Sumá un plato nuevo al pedido' });
-  return { tipo: 'list', text: '¿Qué plato querés editar? (o sumá uno nuevo)', button: 'Editar plato', sections: [{ title: 'Tus platos', rows }] };
+  return { tipo: 'list', text: '¿Qué plato quieres editar? (o suma uno nuevo)', button: 'Editar plato', sections: [{ title: 'Tus platos', rows }] };
 }
 function renderEditItem(estado, menu) {
   const it = estado.items[estado.editIdx];
@@ -377,8 +388,32 @@ function registrarCambio(it, de, a) {
   it.cambios.push({ de: String(de), a: String(a) });
 }
 function botonesResetConfirm() {
-  return { tipo: 'buttons', text: '¿Seguro que querés empezar de nuevo? Perdés el pedido armado.',
+  return { tipo: 'buttons', text: '¿Seguro que quieres empezar de nuevo? Pierdes el pedido armado.',
     buttons: [{ id: 'reset_si', title: '🔄 Sí, de nuevo' }, { id: 'reset_no', title: '↩ No, volver' }] };
+}
+// BUG4: botones de ESCAPE cuando el cliente queda atascado (2º "no te entendí"). Antes no había salida
+// ni por texto ni por botón. Válidos en cualquier paso (se manejan globalmente al inicio de procesar).
+function botonesAtascado() {
+  return { tipo: 'buttons', text: '¿Te ayudo con algo? Puedes empezar de nuevo o hablar con el local 🙂',
+    buttons: [{ id: 'reset_si', title: '🔄 Empezar de nuevo' }, { id: 'hablar_local', title: '🧑 Hablar con el local' }] };
+}
+// BUG4: saludos/keywords que en CUALQUIER paso significan "reiniciar", no input del paso. Match EXACTO
+// sobre el texto normalizado (no `includes`) para no false-triggear una dirección o descripción que
+// contenga "hola"/"menu". Origen: Alberto quedó atascado 8 días en un pedido a medias (15-jul).
+const _RESET_KW = new Set(['hola', 'holaa', 'holis', 'buenas', 'buenos dias', 'buenas tardes',
+  'buenas noches', 'menu', 'carta', 'empezar', 'empezar de nuevo', 'de nuevo', 'reiniciar', 'reset',
+  'cancelar', 'cancelar pedido', 'volver a empezar', 'quiero pedir', 'pedir']);
+export function esResetKeyword(texto) { return _RESET_KW.has(_norm(texto)); }
+function tieneProgreso(e) {
+  return (e && ((Array.isArray(e.items) && e.items.length > 0) || (e.actual && e.actual.proteina)));
+}
+// Resumen corto del pedido a medias (para la pregunta "¿lo retomas o empezás de nuevo?").
+function resumenAMedias(e) {
+  const platos = [];
+  for (const it of (e.items || [])) if (it?.proteina) platos.push(it.proteina);
+  if (e.actual?.proteina) platos.push(e.actual.proteina);
+  const lista = platos.length ? platos.join(', ') : 'un pedido a medias';
+  return { tipo: 'text', text: `Tienes un pedido a medias (${lista}).` };
 }
 
 // ── pedido final (formato crearPedido) ───────────────────────────────────────
@@ -482,7 +517,7 @@ export function matchTexto(paso, texto, menu) {
   }
 }
 function hintNoEntendi() {
-  return { tipo: 'text', text: 'No te entendí 🙂. Tocá una opción del menú o escribí su nombre.' };
+  return { tipo: 'text', text: 'No te entendí 🙂. Toca una opción del menú o escribe su nombre.' };
 }
 
 // ── núcleo: una transición ───────────────────────────────────────────────────
@@ -496,6 +531,32 @@ export function procesar(estado, input, menu) {
   // resolver el texto a una opción del paso. Si no se reconoce: re-render con hint; al 2º fallo seguido
   // → escalar a humano (flag para el router). DIRECCION usa el texto tal cual; FIN no aplica.
   let id = input?.id ?? '';
+
+  // ── BUG4: escape/reset GLOBAL (cualquier paso), antes del match de texto ──────────────────
+  // Botones de escape (de botonesAtascado/botonesResetConfirm) y keywords de saludo/cancelación.
+  if (id === 'reset_si') {
+    const ne = estadoInicial();
+    return { estado: ne, salidas: [{ tipo: 'text', text: '¡Listo, empecemos de nuevo! 🙂' }, renderProteina(menu, ne)] };
+  }
+  if (id === 'reset_no') {
+    e.paso = e.resetReturn || PASOS.CONFIRMAR; e.resetReturn = null;
+    return { estado: e, salidas: [renderPaso(e, menu)] };
+  }
+  if (id === 'hablar_local') {
+    e.intentos = 0;
+    return { estado: e, salidas: [{ tipo: 'text', text: 'Te conecto con el local 🙂. Cuando quieras seguir tu pedido, toca una opción o escribe su nombre 👇' }, renderPaso(e, menu)], escalar: true };
+  }
+  // Keyword de reinicio por TEXTO (hola/menú/cancelar…): si hay pedido a medias, pregunta antes de
+  // borrarlo; si no hay progreso, arranca fresco directo. Match exacto → no pisa direcciones legítimas.
+  if (input?.tipo === 'text' && esResetKeyword(texto)) {
+    if (tieneProgreso(e) && e.paso !== PASOS.RESET_CONFIRM) {
+      e.resetReturn = e.paso; e.paso = PASOS.RESET_CONFIRM;
+      return { estado: e, salidas: [resumenAMedias(e), botonesResetConfirm()] };
+    }
+    const ne = estadoInicial();
+    return { estado: ne, salidas: [renderProteina(menu, ne)] };
+  }
+
   if (input?.tipo === 'text' && texto && e.paso !== PASOS.DIRECCION && e.paso !== PASOS.EDIT_ESPECIAL_TXT && e.paso !== PASOS.FIN) {
     const resuelto = matchTexto(e.paso, texto, menu);
     if (resuelto) { id = resuelto; e.intentos = 0; }
@@ -503,7 +564,11 @@ export function procesar(estado, input, menu) {
       e.intentos = (e.intentos || 0) + 1;
       const escalar = e.intentos >= 2;
       if (escalar) e.intentos = 0;
-      return { estado: e, salidas: [hintNoEntendi(), renderPaso(e, menu)], ...(escalar ? { escalar: true } : {}) };
+      // BUG4: al 2º fallo, en vez de solo repetir el hint, damos salida por botón (empezar de nuevo /
+      // hablar con el local). Mantenemos `escalar` para que el router también avise al local.
+      return escalar
+        ? { estado: e, salidas: [botonesAtascado()], escalar: true }
+        : { estado: e, salidas: [hintNoEntendi(), renderPaso(e, menu)] };
     }
   }
   const reRender = (extra) => ({ estado: e, salidas: [renderPaso(e, menu)], ...(extra || {}) });
@@ -756,7 +821,7 @@ export function procesar(estado, input, menu) {
         const r = vuelveEdicion(e, menu, 'Le paso tu pedido especial al local 🙂. Seguimos armando el resto y lo confirman antes de cerrar.');
         return { ...r, crearSolicitud: { plato, descripcion } };
       }
-      return { estado: e, salidas: [{ tipo: 'text', text: 'Escribime qué querés (algo que no está en el menú).' }] };
+      return { estado: e, salidas: [{ tipo: 'text', text: 'Escríbeme qué quieres (algo que no está en el menú).' }] };
     }
     case PASOS.FIN:
     default:
@@ -794,7 +859,7 @@ function renderPaso(e, menu) {
     case PASOS.EDIT_BEBIDA: return renderBebida(menu, e);
     case PASOS.EDIT_AGREGAR: return renderEditAgregar(e, menu);
     case PASOS.EDIT_COMP_TO: return renderEditCompTo(e, menu);
-    case PASOS.EDIT_ESPECIAL_TXT: return { tipo: 'text', text: 'Escribime qué querés (algo que no está en el menú).' };
+    case PASOS.EDIT_ESPECIAL_TXT: return { tipo: 'text', text: 'Escríbeme qué quieres (algo que no está en el menú).' };
     default: return { tipo: 'text', text: '🙂' };
   }
 }
@@ -830,7 +895,7 @@ export function renderMenuCliente(menu) {
   t += `🍽️ *Plato del día* — ${clp(base)}\n_(incluye 2 acompañamientos + 1 bebida)_\n${prot}`;
   // R3-1 (2026-06-30): línea en blanco (\n\n) ANTES de cada título de sección → las secciones respiran.
   t += `\n\n🥗 *Acompañamientos* (2 incluidos · extra ${clp(2000)} c/u):\n${puntos(incArr.length ? incArr : ['(consultar)'])}`;
-  t += `\n\n🥤 *Bebida incluida* (elegí una):\n${puntos(bebArr.length ? bebArr : ['incluida'])}`;
+  t += `\n\n🥤 *Bebida incluida* (elige una):\n${puntos(bebArr.length ? bebArr : ['incluida'])}`;
   if (exArr.length) t += `\n\n➕ *Extras*:\n${puntos(exArr)}`;
   if (esp) t += `\n\n⭐ *Especiales* (platos aparte, precio propio)\n${esp}`;
   t += `\n\nArmemos tu pedido tocando los botones 👇`;
