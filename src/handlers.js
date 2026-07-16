@@ -363,6 +363,13 @@ export async function handleMessage({ sock, logger, menu, msg }) {
 
   // ── Tier básico (MODE=buttons): ruteo determinista por botones, SIN LLM. Aislado del flujo premium. ──
   if (MODE_BUTTONS) {
+    // Pausa durable por handoff: si un humano está atendiendo (en_atencion_humana en el wizard), el bot
+    // NO responde en paralelo. En modo botones esta rama retornaba ANTES del chequeo general (línea ~405),
+    // así que el bot hablaba por encima del humano (gap 2026-07-15). Fail-open: si el wizard no responde, sigue.
+    if (COMUNICACIONES && await botPausado(jid)) {
+      logger.info({ jid }, '⏸️ conversación en atención humana — bot pausado (botones), no responde');
+      return;
+    }
     if (!estaAbierto(menu)) { await sendBotMessage(sock, jid, { text: mensajeCerrado() }); return; }
     if (msg.message?.imageMessage) {
       // Comprobante de transferencia: subirlo al pedido esperando_comprobante del jid → el backend lo
@@ -376,7 +383,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
           await sendBotMessage(sock, jid, { text: '¡Recibí tu comprobante! 🙂 El local lo valida y te confirma enseguida.' });
         } else {
           escalarAHumano(jid, 'comprobante-tier-basico').catch(() => {});
-          await sendBotMessage(sock, jid, { text: 'Gracias 🙂. Si es un comprobante de pago, avisanos y lo validamos.' });
+          await sendBotMessage(sock, jid, { text: 'Gracias 🙂. Si es un comprobante de pago, avísanos y lo validamos.' });
         }
       } catch (e) {
         // ESENCIAL (comprobante): NO fingir éxito. subirComprobante ya reintentó ante 5xx; si igual
@@ -384,7 +391,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
         // silencio es peor que pedir reenvío (encargo resiliencia integral 2026-06-29).
         logger.error({ jid, err: e.message }, 'tier básico: subir comprobante FALLA → aviso honesto + escalo');
         escalarAHumano(jid, 'comprobante-tier-basico').catch(() => {});
-        await sendBotMessage(sock, jid, { text: 'Recibí tu imagen pero tuve un problema al guardarla 😕. Le avisé al local para que la revise; si no aparece, reenviámela en un ratito 🙂' });
+        await sendBotMessage(sock, jid, { text: 'Recibí tu imagen pero tuve un problema al guardarla 😕. Le avisé al local para que la revise; si no aparece, reenvíamela en un ratito 🙂' });
       }
       return;
     }

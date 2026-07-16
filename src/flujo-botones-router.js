@@ -160,7 +160,7 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
   // Si el cliente escribió algo no reconocido 2 veces seguidas → la máquina pide escalar (duda).
   if (r.escalar) {
     escalarAHumano(jid, 'consulta-tier-basico').catch(() => {});
-    await sock.sendMessage(jid, { text: 'Si tenés una consulta, te conecto con el local 🙂. Para seguir tu pedido, tocá una opción o escribí su nombre 👇' });
+    await sock.sendMessage(jid, { text: 'Si tienes una consulta, te conecto con el local 🙂. Para seguir tu pedido, toca una opción o escribe su nombre 👇' });
   }
   if (r.pedido) await finalizar(sock, jid, senderName, r.pedido, logger);
 }

@@ -37,11 +37,22 @@ function msgRetirado() {
   return '¡Gracias por pasar a retirar tu pedido! 🙂 Que lo disfrutes. ¡Te esperamos pronto en El Sazón de Carla y César! 🧡';
 }
 
+// Cancelación por el local: el cliente DEBE enterarse (antes se descartaba en silencio — el switch
+// no cubría 'cancelado' → default null → flag limpiado sin avisar). La razón la elige la dueña.
+function msgCancelado(razon) {
+  const r = (razon || '').trim();
+  const motivo = r ? `\n\n_${r}_` : '';
+  return `Hola 🙂 Lamentablemente el local tuvo que cancelar tu pedido.${motivo}\n\nSi fue un error o quieres hacer otro, escríbenos y te ayudamos enseguida 🙏`;
+}
+
 // Mapeo tipo de notificación (notif_pendiente del backend) → texto al cliente.
-function textoPara(p) {
+// Exportado para test unitario (sin red).
+export function textoPara(p) {
   switch (p.tipo) {
     case 'validado': return msgValidado();
     case 'rechazado': return msgRechazado(p.razon);
+    case 'cancelado': return msgCancelado(p.razon);
+    case 'cancelado_por_dueño': return msgCancelado(p.razon); // por si el backend manda el status como tipo
     case 'en_camino': return msgEnCamino();
     case 'listo': return msgListo();
     case 'entregado': return msgEntregado();

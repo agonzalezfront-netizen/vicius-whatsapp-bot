@@ -75,6 +75,25 @@ check('2º no-entendido: escalar', r2.escalar === true);
 check('2º no-entendido: ofrece "empezar de nuevo"', tieneBoton(r2.salidas, 'reset_si'));
 check('2º no-entendido: ofrece "hablar con el local"', tieneBoton(r2.salidas, 'hablar_local'));
 
+console.log('\n— Row "✖ Cancelar pedido" en la lista de platos (con pedido en curso) —');
+const conItems = () => {
+  const st = estadoInicial();
+  st.items = [{ proteina: 'Pollo', esEspecial: false, agregados: ['Arroz', 'Puré'], bebida: 'Consomé', extras: [], componentes: [] }];
+  st.agregarReturn = PASOS.CONFIRMAR; // simula "agregar otro plato" → paso PROTEINA con items
+  return st;
+};
+r = procesar(conItems(), { tipo: 'init' }, menu);
+const listaProt = r.salidas.find((s) => s.tipo === 'list');
+const filas = listaProt ? listaProt.sections.flatMap((sec) => sec.rows) : [];
+check('la lista de platos ofrece row menu_cancelar', filas.some((f) => f.id === 'menu_cancelar'));
+r = procesar(conItems(), { tipo: 'button', id: 'menu_cancelar' }, menu);
+check('menu_cancelar → RESET_CONFIRM (pregunta antes de borrar)', r.estado.paso === PASOS.RESET_CONFIRM);
+
+console.log('\n— Sin progreso NO se ofrece cancelar (nada que cancelar) —');
+r = procesar(estadoInicial(), { tipo: 'init' }, menu);
+const filas0 = (r.salidas.find((s) => s.tipo === 'list')?.sections || []).flatMap((sec) => sec.rows);
+check('primera pantalla sin row cancelar', !filas0.some((f) => f.id === 'menu_cancelar'));
+
 console.log('\n— Regresión: un texto que SÍ matchea una opción avanza normal —');
 r = procesar(estadoInicial(), { tipo: 'text', texto: 'Carne mechada' }, menu);
 check('elegir proteína por texto avanza a ACOMP', r.estado.paso === PASOS.ACOMP);

@@ -123,6 +123,12 @@ function renderProteina(menu, estado = null, offset = 0) {
     it.k === 'e'
       ? { id: `prot:${idx}`, title: it.nombre.slice(0, 24), description: `Especial ${clp(it.precio)}` }
       : { id: `prot:${idx}`, title: it.nombre.slice(0, 24) });
+  // BUG4/pto4: salida por BOTÓN en la lista larga de platos. Solo si hay algo que cancelar (pedido en
+  // curso) y queda cupo (no romper el límite de 10 filas de WhatsApp). El escape por TEXTO ("cancelar")
+  // funciona siempre; este row cubre al usuario 100% botones.
+  if (estado && ((estado.items?.length || 0) > 0 || estado.agregarReturn) && rows.length < MAX_ROWS) {
+    rows.push({ id: 'menu_cancelar', title: '✖ Cancelar pedido' });
+  }
   // R4-2: si ya hay platos en el pedido (ej. "Agregar otro plato"), mostrar el acumulado. Plato nuevo → no hay actual aún.
   const tot = estado ? lineaTotalVivo({ ...estado, actual: null }, menu) : '';
   return { tipo: 'list', text: `¿Qué plato quieres? 🍽️${tot}`, button: 'Ver platos',
@@ -338,8 +344,8 @@ function renderEditAgregar(estado, menu) {
   const salida = { id: 'ea_listo', title: '✅ Listo', description: 'No agregar más' };
   const rows = [salida, ...opts.slice(0, MAX_ROWS - 1)];
   const cab = libre > 0
-    ? `¿Qué le sumás? (te queda${libre === 1 ? '' : 'n'} ${libre} gratis · extras ${clp(2000)})`
-    : `¿Qué le sumás? (cada uno ${clp(2000)})`;
+    ? `¿Qué le sumas? (te queda${libre === 1 ? '' : 'n'} ${libre} gratis · extras ${clp(2000)})`
+    : `¿Qué le sumas? (cada uno ${clp(2000)})`;
   return { tipo: 'list', text: cab, button: 'Ver opciones', sections: [{ title: 'Agregar al plato', rows }] };
 }
 // H3 — "Cambiar algo del plato": lista unificada de las partes del plato (componentes reemplazables del
@@ -550,6 +556,11 @@ export function procesar(estado, input, menu) {
   if (id === 'hablar_local') {
     e.intentos = 0;
     return { estado: e, salidas: [{ tipo: 'text', text: 'Te conecto con el local 🙂. Cuando quieras seguir tu pedido, toca una opción o escribe su nombre 👇' }, renderPaso(e, menu)], escalar: true };
+  }
+  // Row "✖ Cancelar pedido" de la lista de platos → pregunta antes de borrar (RESET_CONFIRM).
+  if (id === 'menu_cancelar') {
+    e.resetReturn = e.paso; e.paso = PASOS.RESET_CONFIRM;
+    return { estado: e, salidas: [resumenAMedias(e), botonesResetConfirm()] };
   }
   // Keyword de reinicio por TEXTO (hola/menú/cancelar…): si hay pedido a medias, pregunta antes de
   // borrarlo; si no hay progreso, arranca fresco directo. Match exacto → no pisa direcciones legítimas.
