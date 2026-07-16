@@ -31,5 +31,5 @@ export function estaAbierto(menu, tz = process.env.TZ ?? 'America/Santiago', now
 }
 
 export function mensajeCerrado() {
-  return '¡Hola! 🙂 En este momento estamos cerrados.\n\n🕐 *Horario:*\n• Lunes a sábado: 12 a 19 hs\n• Domingos: 12 a 18 hs\n\nDejanos tu mensaje y Carla y César te responden apenas abramos. ¡Gracias! 🧡';
+  return '¡Hola! 🙂 En este momento estamos cerrados.\n\n🕐 *Horario:*\n• Lunes a sábado: 12 a 19 hs\n• Domingos: 12 a 18 hs\n\nDéjanos tu mensaje y Carla y César te responden apenas abramos. ¡Gracias! 🧡';
 }
