@@ -185,8 +185,21 @@ export function setActiveMenu(payload) {
     published_at: payload.published_at,
     received_at: new Date().toISOString(),
     repertorio,
+    // Horario del local (gap 1 de la Web N2): se preserva al publicar para que NO se pierda al
+    // reconstruir el menú (bug: setActiveMenu whitelistea campos → sin esto, publicar borraba el
+    // horario que la Web N2 usa para cortar pedidos fuera de hora). Solo si tiene forma válida.
+    ...(_horarioValido(payload.horario) ? { horario: payload.horario } : {}),
   };
   return activeMenu;
+}
+
+// Valida la forma del horario: { dias: { "0".."6": [["HH:MM","HH:MM"], ...] } }. Evita persistir basura.
+function _horarioValido(h) {
+  if (!h || typeof h !== 'object' || !h.dias || typeof h.dias !== 'object') return false;
+  return Object.values(h.dias).every(
+    (rangos) => Array.isArray(rangos)
+      && rangos.every((r) => Array.isArray(r) && r.length === 2 && r.every((t) => /^\d{1,2}:\d{2}$/.test(String(t)))),
+  );
 }
 
 // Bebidas incluidas REALMENTE disponibles hoy, normalizadas cara al cliente
