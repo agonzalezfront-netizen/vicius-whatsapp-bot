@@ -86,7 +86,9 @@ export async function handleIncoming(rawBody, signatureHeader, ctx) {
       const msgs = normalizeIncoming(value);
       for (const msg of msgs) {
         try {
-          await handleMessage({ sock, logger, menu, msg });
+          // Multitenant F1.5: el slug del tenant (mapeado a su local en el wizard) viaja en el ctx
+          // de CADA mensaje → handleMessage lo pasa al ciclo por turno, que pide el menú de ESE local.
+          await handleMessage({ sock, logger, menu, msg, slug: tenant.slug });
         } catch (err) {
           logger.error?.({ err: err.message, stack: err.stack }, 'webhook: handleMessage falló');
         }

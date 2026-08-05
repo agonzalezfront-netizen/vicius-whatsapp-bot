@@ -330,7 +330,10 @@ function extractText(msg) {
   );
 }
 
-export async function handleMessage({ sock, logger, menu, msg }) {
+// `slug` (multitenant F1.5, opcional): local del tenant que originó el mensaje (resuelto por el
+// caller — hoy solo el webhook Cloud API, vía tenants.js — a partir del phone_number_id). Sin slug
+// (Baileys/Sazón sin tenant Cloud API) el tier básico usa el menú default, comportamiento intacto.
+export async function handleMessage({ sock, logger, menu, msg, slug }) {
   if (!msg.message) return;
   const jid = msg.key.remoteJid;
   if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') return;
@@ -395,7 +398,7 @@ export async function handleMessage({ sock, logger, menu, msg }) {
       }
       return;
     }
-    await manejarTurnoBotones({ sock, jid, senderName: msg.pushName ?? 'cliente', btnId: msg._btnId ?? null, texto: extractText(msg), logger });
+    await manejarTurnoBotones({ sock, jid, senderName: msg.pushName ?? 'cliente', btnId: msg._btnId ?? null, texto: extractText(msg), logger, slug });
     return;
   }
 

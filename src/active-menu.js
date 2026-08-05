@@ -1,6 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
+// Multitenant (F1.5): el menú activo YA NO es un singleton único — cada local (tenant, identificado
+// por su `slug`) tiene su propio menú publicado. `activeMenu` sigue existiendo como el slot DEFAULT
+// (back-compat): quien no pase `slug` (index.js al recuperar el menú al boot, qr-server.js al publicar
+// desde el Menu Manager de HOY, la ruta Baileys sin tenant Cloud API) sigue leyendo/escribiendo ahí,
+// exactamente igual que antes de este cambio. `menuBySlug` guarda el menú de cada local con slug
+// asignado (a futuro, todo tenant de WA_TENANTS). Un slug que NO tiene menú propio cae al default
+// (mandato: "si un tenant no tiene slug, el bot sigue funcionando como hoy").
 let activeMenu = null;
+const menuBySlug = new Map();
 
 const VALID_DAY_CODES = new Set(['D', 'L', 'M', 'X', 'J', 'V', 'S']);
 
@@ -14,11 +22,15 @@ const DAY_CODE_TO_NAME = {
   S: 'sábado',
 };
 
-export function getActiveMenu() {
+// `slug` opcional: si viene y ese local tiene menú propio publicado, lo devuelve; si no, cae al
+// slot default (mismo comportamiento que si nunca hubiera existido el concepto de slug).
+export function getActiveMenu(slug) {
+  if (slug && menuBySlug.has(slug)) return menuBySlug.get(slug);
   return activeMenu;
 }
 
-export function clearActiveMenu() {
+export function clearActiveMenu(slug) {
+  if (slug) { menuBySlug.delete(slug); return; }
   activeMenu = null;
 }
 
@@ -27,8 +39,8 @@ export function clearActiveMenu() {
 // activo hoy. Con el repertorio, "en repertorio pero no hoy" es un universo cerrado →
 // el bot puede decir "hoy no tenemos X, otros días sí" sin inventar ni negar que existe.
 // Lo guarda setActiveMenu al publicar (viaja dentro del payload del menú).
-export function getRepertorio() {
-  return activeMenu?.repertorio ?? null;
+export function getRepertorio(slug) {
+  return getActiveMenu(slug)?.repertorio ?? null;
 }
 
 export function dayCodeToName(code) {
@@ -104,7 +116,10 @@ export function validateMenuPayload(body) {
   return { valid: errors.length === 0, errors };
 }
 
-export function setActiveMenu(payload) {
+// `slug` opcional (multitenant F1.5): si viene, el menú construido se guarda en el slot de ESE
+// local (`menuBySlug`) y NO toca el default. Si se omite, se comporta exactamente como antes
+// (escribe/reemplaza el slot default) — back-compat total con index.js/qr-server.js de hoy.
+export function setActiveMenu(payload, slug) {
   // Normalizar ambos shapes a un modelo interno único.
   const proteinas = Array.isArray(payload.proteinas_dia)
     ? payload.proteinas_dia.map((p) => ({ nombre: p.nombre.trim(), disponible: p.disponible !== false }))
@@ -171,7 +186,7 @@ export function setActiveMenu(payload) {
     };
   }
 
-  activeMenu = {
+  const menu = {
     id: `menu_${randomUUID().slice(0, 8)}`,
     day_label: payload.day_label.trim(),
     day_code: payload.day_code,
@@ -190,7 +205,12 @@ export function setActiveMenu(payload) {
     // horario que la Web N2 usa para cortar pedidos fuera de hora). Solo si tiene forma válida.
     ...(_horarioValido(payload.horario) ? { horario: payload.horario } : {}),
   };
-  return activeMenu;
+  if (slug) {
+    menuBySlug.set(slug, menu);
+  } else {
+    activeMenu = menu;
+  }
+  return menu;
 }
 
 // Valida la forma del horario: { dias: { "0".."6": [["HH:MM","HH:MM"], ...] } }. Evita persistir basura.

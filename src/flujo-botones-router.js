@@ -85,8 +85,11 @@ async function finalizar(sock, jid, senderName, pedido, logger) {
 }
 
 // Punto de entrada del tier básico. `btnId` = id crudo del botón/lista (o null); `texto` = texto libre.
-export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto, logger }) {
-  const menu = getActiveMenu();
+// `slug` (multitenant F1.5, opcional): identifica el LOCAL del tenant (resuelto por el caller a partir
+// del phone_number_id vía tenants.js). Sin slug (Baileys/Sazón sin tenant Cloud API, o tenant sin slug
+// asignado todavía) cae al menú default — comportamiento idéntico al de antes de este cambio.
+export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto, logger, slug }) {
+  const menu = getActiveMenu(slug);
   let estado = await getEstadoFlujo(jid).catch(() => null);
 
   // BUG4 (2026-07-15): TTL de sesión. Un estado mid-flow que quedó viejo (cliente que abandonó el pedido

@@ -7,8 +7,13 @@
 //   WA_PHONE_NUMBER_ID   id del número de prueba/productivo (de la app de Meta)
 //   WA_TOKEN             access token (temp 24h al inicio → System User permanente)
 //   WA_BUSINESS_NAME     nombre legible (opcional, para logs)
+//   WA_TENANT_SLUG       slug del LOCAL (multitenant F1.5) — default 'sazon' (el primer local, ver
+//                        plan 2026-08-05: "sazon es el primer local"). Determina qué menú (por
+//                        local_slug) sirve el bot para este número.
 //
-// A futuro (multi-negocio): WA_TENANTS = JSON [{phoneNumberId, token, name}, ...].
+// A futuro (multi-negocio): WA_TENANTS = JSON [{phoneNumberId, token, name, slug}, ...]. `slug`
+// mapea el phone_number_id de CADA tenant a su local en el wizard (locales.phone_number_id) → el
+// ciclo por turno resuelve slug=getTenant(phoneNumberId).slug y pide getActiveMenu(slug).
 
 const _byPhoneId = new Map();
 
@@ -18,6 +23,9 @@ function register(t) {
     phoneNumberId: String(t.phoneNumberId),
     token: t.token,
     name: t.name ?? 'sazon',
+    // slug ausente/null → el bot cae al menú default (back-compat, mandato F1.5 #3: un tenant sin
+    // slug sigue funcionando como hoy, no rompe al Sazón mientras no se le asigne uno explícito).
+    slug: t.slug ?? null,
   });
 }
 
@@ -38,6 +46,10 @@ export function loadTenantsFromEnv() {
       phoneNumberId: process.env.WA_PHONE_NUMBER_ID,
       token: process.env.WA_TOKEN,
       name: process.env.WA_BUSINESS_NAME ?? 'sazon',
+      // Default 'sazon' (primer local, plan F1). Inofensivo hasta que el wizard publique menú por
+      // slug (F1.2/F1.3): mientras `menuBySlug` no tenga 'sazon', getActiveMenu('sazon') cae igual
+      // al default — cero cambio de comportamiento hoy.
+      slug: process.env.WA_TENANT_SLUG ?? 'sazon',
     });
   }
   return _byPhoneId.size;
