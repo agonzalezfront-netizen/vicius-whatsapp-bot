@@ -168,7 +168,7 @@ function renderEspAgregar(menu, estado) {
   // R3-2b: la salida va PRIMERO; reservo su fila → el resto cabe en MAX_ROWS-1.
   const salida = { id: 'esp_listo', title: yaTiene ? '✅ Listo' : 'No, seguir', description: 'No agregar nada más' };
   const rows = [salida, ...opts.slice(0, MAX_ROWS - 1)];
-  return { tipo: 'list', text: `¿Querés agregar algo más? (cada uno cuesta $2.000)${lineaTotalVivo(estado, menu)}`, button: 'Ver opciones', // R3-2a
+  return { tipo: 'list', text: `¿Quieres agregar algo más? (cada uno cuesta $2.000)${lineaTotalVivo(estado, menu)}`, button: 'Ver opciones', // R3-2a
     sections: [{ title: 'Agregados del especial', rows }] };
 }
 function renderBebida(menu, estado) {
@@ -185,7 +185,7 @@ function renderExtras(menu, estado) {
   const all = extras(menu); // R3-3 (2026-06-30): TODOS los extras, REPETIBLES (no se filtran los ya elegidos).
   if (!all.length) return null; // nada que ofrecer → avanzar
   const yaTiene = (actual?.extras ?? []).length > 0;
-  const cab = yaTiene ? '¿Otro extra?' : '¿Querés agregar un extra? (opcional)';
+  const cab = yaTiene ? '¿Otro extra?' : '¿Quieres agregar un extra? (opcional)';
   const tot = lineaTotalVivo(estado, menu); // R4-2: acumulado en vivo (clave en la re-pregunta de "¿otro extra?")
   const salir = { id: 'ex_no', title: yaTiene ? '✅ Listo' : 'No, seguir' };
   // R2-3 (2026-06-30): el precio NUNCA en el label del botón (se trunca, ~20 chars) → va en el TEXTO de arriba.
@@ -270,7 +270,7 @@ function renderResumen(estado, menu) {
   const extrasPedido = (sol && sol.status === 'aplicado') ? [{ nombre: `🙋 ${sol.descripcion}`, costo: Number(sol.costo) || 0 }] : [];
   // R3-5 (2026-06-30): solo en DELIVERY, recordar que verificar la dirección es responsabilidad del cliente.
   const avisoDir = (estado.tipo === 'delivery' && estado.direccion)
-    ? '\n\n⚠️ Revisá que tu dirección esté correcta — la entrega depende de eso.' : '';
+    ? '\n\n⚠️ Revisa que tu dirección esté correcta — la entrega depende de eso.' : '';
   const txt = construirResumen(calc, extrasPedido) + dirTxt + avisoDir;
   return { calc, salida: { tipo: 'buttons', text: txt + '\n\n¿Confirmamos?', buttons: [
     { id: 'conf_si', title: '✅ Confirmar' }, { id: 'conf_editar', title: '✏️ Editar' }, { id: 'conf_reset', title: '🔄 Empezar de nuevo' },
@@ -307,7 +307,7 @@ function renderEditPick(estado, offset = 0) {
     }, 'ep_volver', '↩ Volver');
   // R4-1 (2026-06-30): sumar un PLATO COMPLETO nuevo al pedido (≠ R3-4 "Agregar algo más", que es DENTRO de un
   // plato). Va antes del "↩ Volver".
-  rows.splice(Math.max(0, rows.length - 1), 0, { id: 'ep_nuevo', title: '➕ Agregar otro plato', description: 'Sumá un plato nuevo al pedido' });
+  rows.splice(Math.max(0, rows.length - 1), 0, { id: 'ep_nuevo', title: '➕ Agregar otro plato', description: 'Suma un plato nuevo al pedido' });
   return { tipo: 'list', text: '¿Qué plato quieres editar? (o suma uno nuevo)', button: 'Editar plato', sections: [{ title: 'Tus platos', rows }] };
 }
 function renderEditItem(estado, menu) {
@@ -317,12 +317,12 @@ function renderEditItem(estado, menu) {
   // mismo: una parte de su plato). H2: bajadas descriptivas por fila (los labels eran poco claros en QA).
   const tieneParts = it && ((it.componentes || []).some((c) => c.reemplazable) || (it.agregados || []).length);
   if (tieneParts) rows.push({ id: 'ei_parte', title: '🍽 Cambiar algo del plato', description: 'Cambiá una parte por otra del día o un extra' });
-  if (bebidas(menu).length) rows.push({ id: 'ei_bebida', title: '🥤 Cambiar bebida', description: 'Elegí otra bebida incluida' });
+  if (bebidas(menu).length) rows.push({ id: 'ei_bebida', title: '🥤 Cambiar bebida', description: 'Elige otra bebida incluida' });
   // R3-4 (2026-06-30): sumar un acompañamiento o extra a un plato ya armado (precio según el cupo del plato).
-  if (acompañamientos(menu).length || extras(menu).length) rows.push({ id: 'ei_agregar', title: '➕ Agregar algo más', description: 'Sumá un acompañamiento o un extra' });
+  if (acompañamientos(menu).length || extras(menu).length) rows.push({ id: 'ei_agregar', title: '➕ Agregar algo más', description: 'Suma un acompañamiento o un extra' });
   rows.push({ id: 'ei_especial', title: '🙋 Pedir algo especial', description: 'Algo que no está en el menú — lo confirma el local' });
   rows.push({ id: 'ei_quitar', title: '🗑 Quitar este plato', description: 'Sacá este plato del pedido' });
-  rows.push({ id: 'ei_volver', title: '↩ Volver', description: 'Volvé sin cambios' });
+  rows.push({ id: 'ei_volver', title: '↩ Volver', description: 'Vuelve sin cambios' });
   return { tipo: 'list', text: `Editar: *${nombreItem(it)}*. ¿Qué cambiás?`, button: 'Opciones', sections: [{ title: 'Editar plato', rows }] };
 }
 // R3-4 (2026-06-30): cupo de acompañamientos GRATIS que le queda al ítem (normal = 2 − usados; especial = 0).
@@ -691,7 +691,7 @@ export function procesar(estado, input, menu) {
     }
     case PASOS.CONFIRMA_DIR: {
       if (id === 'dir_ok') { e.paso = PASOS.PAGO; return { estado: e, salidas: [botonesPago('delivery')] }; }
-      if (id === 'dir_fix') { e.direccion = null; e.paso = PASOS.DIRECCION; return { estado: e, salidas: [{ tipo: 'text', text: 'Dale 🙂. Escribime de nuevo la dirección (calle, número, depto).' }] }; }
+      if (id === 'dir_fix') { e.direccion = null; e.paso = PASOS.DIRECCION; return { estado: e, salidas: [{ tipo: 'text', text: 'Listo 🙂. Escríbeme de nuevo la dirección (calle, número, depto).' }] }; }
       return reRender();
     }
     case PASOS.PAGO: {
@@ -740,7 +740,7 @@ export function procesar(estado, input, menu) {
       }
       if (id === 'ei_bebida') { e.paso = PASOS.EDIT_BEBIDA; return { estado: e, salidas: [renderBebida(menu, e)] }; }
       if (id === 'ei_agregar') { e.paso = PASOS.EDIT_AGREGAR; return { estado: e, salidas: [renderEditAgregar(e, menu)] }; }
-      if (id === 'ei_especial') { e.paso = PASOS.EDIT_ESPECIAL_TXT; return { estado: e, salidas: [{ tipo: 'text', text: 'Escribime qué te gustaría que no está en el menú 🙂. Se lo paso al local y lo confirman antes de cerrar.' }] }; }
+      if (id === 'ei_especial') { e.paso = PASOS.EDIT_ESPECIAL_TXT; return { estado: e, salidas: [{ tipo: 'text', text: 'Escríbeme qué te gustaría que no está en el menú 🙂. Se lo paso al local y lo confirman antes de cerrar.' }] }; }
       if (id === 'ei_quitar') {
         if (e.editIdx != null) e.items.splice(e.editIdx, 1);
         e.editIdx = null;

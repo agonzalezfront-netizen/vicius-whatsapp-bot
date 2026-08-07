@@ -70,7 +70,7 @@ export async function escalarAHumano(jid, motivo) {
   const out = await res.json();
   // Fase 4 (Web Push): avisar al equipo en el acto, para que suene aunque el teléfono esté bloqueado.
   // Fire-and-forget y best-effort: si el push falla, el escalado YA quedó hecho (no se revierte).
-  enviarPushEquipo({ title: '🙋 Un cliente espera', body: 'Tenés una conversación sin atender en El Sazón.' })
+  enviarPushEquipo({ title: '🙋 Un cliente espera', body: 'Tienes una conversación sin atender en El Sazón.' })
     .catch(() => {});
   return out;
 }

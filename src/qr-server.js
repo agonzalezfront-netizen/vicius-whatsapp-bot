@@ -288,7 +288,7 @@ export function startQRServer(logger, opts = {}) {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(`<!doctype html><html><head><meta charset="utf-8"><title>WhatsApp bot conectado</title>
 <style>body{font-family:system-ui;text-align:center;padding:60px;background:#075E54;color:white}h1{font-size:2em}</style>
-</head><body><h1>✅ Bot conectado</h1><p>El bot ya está escuchando mensajes. No necesitás escanear ningún QR.</p></body></html>`);
+</head><body><h1>✅ Bot conectado</h1><p>El bot ya está escuchando mensajes. No necesitas escanear ningún QR.</p></body></html>`);
         return;
       }
 
@@ -313,9 +313,9 @@ export function startQRServer(logger, opts = {}) {
 <div class="steps">
 <p><b>Pasos en el teléfono del bot (+56910215579):</b></p>
 <ol>
-<li>Abrí WhatsApp</li>
-<li>Tocá los 3 puntos arriba a la derecha → <b>Dispositivos vinculados</b></li>
-<li>Tocá <b>Vincular un dispositivo</b></li>
+<li>Abre WhatsApp</li>
+<li>Toca los 3 puntos arriba a la derecha → <b>Dispositivos vinculados</b></li>
+<li>Toca <b>Vincular un dispositivo</b></li>
 <li>Escaneá este QR</li>
 </ol>
 <p style="color:#666;font-size:.9em">Esta página se recarga sola cada 20s. Si el QR expira, aparece uno nuevo automáticamente.</p>
