@@ -36,8 +36,12 @@ t('pedido de hace 3 semanas → NO reciente (no inyecta estado)', () => {
 t('pedido de hace 2h → reciente', () => {
   assert.strictEqual(pedidoReciente({ created_at: '2026-08-07T15:00:00', status: 'en_cocina' }, AHORA), true);
 });
-t('sin created_at → preserva comportamiento (true)', () => {
-  assert.strictEqual(pedidoReciente({ status: 'en_cocina' }, AHORA), true);
+t('sin created_at (pre-BUG7, ej. pedido del 17/7) → NO reciente (default conservador)', () => {
+  assert.strictEqual(pedidoReciente({ status: 'en_cocina' }, AHORA), false);
+  assert.strictEqual(pedidoReciente({ created_at: null, status: 'en_cocina' }, AHORA), false);
+});
+t('created_at inválido → NO reciente', () => {
+  assert.strictEqual(pedidoReciente({ created_at: 'no-es-fecha', status: 'en_cocina' }, AHORA), false);
 });
 
 console.log('scan de lexicón en strings de salida del bot:');

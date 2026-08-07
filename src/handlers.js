@@ -20,7 +20,10 @@ const HISTORY_MAX_TURNS = parseInt(process.env.HISTORY_MAX_TURNS ?? '12', 10);
 // NO se considera contexto vivo (bug 2026-08-07: retomaba una conversación de hace semanas). 18h.
 const ESTADO_PEDIDO_TTL_MS = parseInt(process.env.ESTADO_PEDIDO_TTL_MS ?? String(18 * 3600 * 1000), 10);
 export function pedidoReciente(p, now = Date.now()) {
-  if (!p?.created_at) return true; // sin fecha (raro): preserva el comportamiento previo
+  // Default CONSERVADOR (fix 2026-08-07): sin/mala fecha ⇒ NO reciente. Un pedido reciente SIEMPRE trae
+  // created_at (garantía de BUG7); si falta, es pre-BUG7 = viejo (el caso del pedido del 17/7 que seguía
+  // arrastrándose). Tratarlo como viejo evita reinyectar conversaciones muertas.
+  if (!p?.created_at) return false;
   const t = new Date(p.created_at).getTime();
   return Number.isFinite(t) && (now - t) < ESTADO_PEDIDO_TTL_MS;
 }
