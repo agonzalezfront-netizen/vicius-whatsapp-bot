@@ -561,6 +561,15 @@ export async function handleMessage({ sock, logger, menu, msg, slug }) {
   } catch (err) {
     logger.warn({ jid, err: err.message }, 'no pude consultar el estado del último pedido (no crítico)');
   }
+  // Si el último pedido es VIEJO (TTL 18h), lo ignoramos por COMPLETO: nullificar acá cubre los DOS
+  // paths que lo inyectan — (1) el turno sintético del historial y (2) el systemPrompt, que marca
+  // "ESTADO REAL DEL ÚLTIMO PEDIDO · PRIORIDAD ABSOLUTA" y hacía que el bot retomara una conversación de
+  // hace semanas (bug 2026-08-07: pedido del 17/7 pre-BUG7 con created_at NULL). Un pedido reciente
+  // SIEMPRE trae created_at → sin fecha = viejo (default conservador en pedidoReciente).
+  if (estadoPedido && !pedidoReciente(estadoPedido)) {
+    logger.info({ jid, id: estadoPedido.id, created_at: estadoPedido.created_at }, 'arrastre: último pedido viejo (TTL) → ignorado (no se inyecta contexto)');
+    estadoPedido = null;
+  }
 
   // El historial del chat NO incluye los avisos que el poller mandó al avanzar el
   // pedido por el panel (validado/en_camino/entregado...), así que queda ANCLADO en
@@ -570,10 +579,8 @@ export async function handleMessage({ sock, logger, menu, msg, slug }) {
   // overridearlo (reproducido 12/12). Inyectamos un turno sintético del asistente con
   // el estado real para que la conversación que ve Claude sea coherente con la realidad.
   let historyAug = history;
-  // El estado sintético solo tiene sentido si el pedido es RECIENTE. Un pedido no-terminal viejo
-  // (cliente que vuelve días/semanas después) NO debe inyectar "tu pedido está en cocina": retomaría
-  // una conversación muerta — bug 2026-08-07 (el bot arrastró un pedido de hace 3 semanas). TTL 18h.
-  if (estadoPedido?.status && pedidoReciente(estadoPedido)) {
+  // estadoPedido ya viene nullificado arriba si el pedido era viejo (TTL) → acá solo inyecta si es reciente.
+  if (estadoPedido?.status) {
     const sint = mensajeEstadoSintetico(estadoPedido.status);
     if (sint) historyAug = [...history, { role: 'assistant', content: sint }];
   }
