@@ -16,6 +16,14 @@ const COMUNICACIONES = (process.env.COMUNICACIONES_ENABLED ?? 'false') === 'true
 const MODE_BUTTONS = (process.env.MODE ?? '') === 'buttons';
 
 const HISTORY_MAX_TURNS = parseInt(process.env.HISTORY_MAX_TURNS ?? '12', 10);
+// TTL para inyectar el estado sintético del último pedido: pasado esto, un pedido no-terminal viejo
+// NO se considera contexto vivo (bug 2026-08-07: retomaba una conversación de hace semanas). 18h.
+const ESTADO_PEDIDO_TTL_MS = parseInt(process.env.ESTADO_PEDIDO_TTL_MS ?? String(18 * 3600 * 1000), 10);
+export function pedidoReciente(p, now = Date.now()) {
+  if (!p?.created_at) return true; // sin fecha (raro): preserva el comportamiento previo
+  const t = new Date(p.created_at).getTime();
+  return Number.isFinite(t) && (now - t) < ESTADO_PEDIDO_TTL_MS;
+}
 const JITTER_MIN = parseInt(process.env.JITTER_MIN_MS ?? '800', 10);
 const JITTER_MAX = parseInt(process.env.JITTER_MAX_MS ?? '3000', 10);
 // Cuánto tiempo el bot queda en silencio para un cliente después de que el
@@ -559,7 +567,10 @@ export async function handleMessage({ sock, logger, menu, msg, slug }) {
   // overridearlo (reproducido 12/12). Inyectamos un turno sintético del asistente con
   // el estado real para que la conversación que ve Claude sea coherente con la realidad.
   let historyAug = history;
-  if (estadoPedido?.status) {
+  // El estado sintético solo tiene sentido si el pedido es RECIENTE. Un pedido no-terminal viejo
+  // (cliente que vuelve días/semanas después) NO debe inyectar "tu pedido está en cocina": retomaría
+  // una conversación muerta — bug 2026-08-07 (el bot arrastró un pedido de hace 3 semanas). TTL 18h.
+  if (estadoPedido?.status && pedidoReciente(estadoPedido)) {
     const sint = mensajeEstadoSintetico(estadoPedido.status);
     if (sint) historyAug = [...history, { role: 'assistant', content: sint }];
   }

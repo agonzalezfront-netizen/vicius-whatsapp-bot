@@ -605,7 +605,7 @@ export function procesar(estado, input, menu) {
       e.actual.esEspecial = todos[idx].esp;
       // Composición FIJA del especial (H4/B1, 2026-06-30): lo que el plato TRAE va en `componentes` —
       // los agregados del día que incluye (Arroz, Tajadas: gratis, del pool del día, reemplazables) + los
-      // exclusivos (porotos negros). NO es un cupo "elegí N gratis del día": su composición ya está en el
+      // exclusivos (porotos negros). NO es un cupo "elige N gratis del día": su composición ya está en el
       // precio. Así B1 (ofrecía "2 gratis") y H4 (unificar incluidos+composición) quedan resueltos de raíz.
       // `exclusivo` marca el origen: el exclusivo es reemplazable DENTRO de su plato, pero NO va al pool general.
       if (todos[idx].esp) {
@@ -895,7 +895,7 @@ export function renderMenuCliente(menu) {
   if (!prot) return null; // sin proteínas no hay menú que mostrar
   const base = menu.price_typical ?? 7000;
   // R2-1 (2026-06-30): cada ítem en su LÍNEA con "·" (como las proteínas), no pegados con comas. La bebida es
-  // "elegí una"; la composición del especial también va con puntos.
+  // "elige una"; la composición del especial también va con puntos.
   const puntos = (arr) => (arr ?? []).map((s) => ` · ${s}`).join('\n');
   const incArr = acompañamientos(menu);
   const bebArr = bebidas(menu).map((b) => String(b).replace(/\s+natural$/i, '').trim());

@@ -782,6 +782,27 @@ async function _callLLM(payload) {
   throw lastErr ?? new Error('generarRespuesta: sin respuesta del LLM');
 }
 
+// Red determinista anti-voseo (bug 2026-08-07: el LLM escribió "Mirá" pese a la instrucción de NO
+// vosear). El marcador del LLM no basta (mismo patrón que otros frenos): neutralizamos por código el
+// output antes de enviarlo. Formas acentuadas → neutro, preservando mayúscula inicial.
+const _VOSEO_MAP = [
+  ['querés', 'quieres'], ['podés', 'puedes'], ['tenés', 'tienes'], ['sabés', 'sabes'], ['hacés', 'haces'],
+  ['decís', 'dices'], ['venís', 'vienes'], ['preferís', 'prefieres'], ['necesitás', 'necesitas'], ['subís', 'subes'],
+  ['mirá', 'mira'], ['elegí', 'elige'], ['sumá', 'suma'], ['revisá', 'revisa'], ['volvé', 'vuelve'],
+  ['abrí', 'abre'], ['avisá', 'avisa'], ['contá', 'cuenta'], ['mandá', 'manda'], ['escribí', 'escribe'],
+  ['probá', 'prueba'], ['tocá', 'toca'], ['dejá', 'deja'], ['andá', 'anda'], ['vení', 'ven'], ['fijate', 'fíjate'],
+  ['decime', 'dime'], ['contame', 'cuéntame'], ['escribime', 'escríbeme'], ['avisame', 'avísame'], ['mandame', 'mándame'],
+  ['decinos', 'dinos'], ['contanos', 'cuéntanos'], ['escribinos', 'escríbenos'], ['avisanos', 'avísanos'],
+];
+export function neutralizarVoseo(t) {
+  if (!t) return t;
+  for (const [v, n] of _VOSEO_MAP) {
+    t = t.replace(new RegExp('(?<![\\p{L}])(' + v + ')(?![\\p{L}])', 'giu'),
+      (m) => (m[0] === m[0].toUpperCase() ? n.charAt(0).toUpperCase() + n.slice(1) : n));
+  }
+  return t;
+}
+
 function _textoDe(res) {
   return res.content.filter((c) => c.type === 'text').map((c) => c.text).join('').trim();
 }
@@ -872,5 +893,6 @@ export async function generarRespuesta({ menu, history, userMessage, sesion = 'n
     if (_tienePedidoConItems(tFix)) texto = tFix; // solo adoptamos si ahora SÍ trae el bloque
   }
 
+  texto = neutralizarVoseo(texto);   // red determinista anti-voseo sobre el output final del LLM
   return { texto, usage: usageTotal, model: MODEL };
 }
