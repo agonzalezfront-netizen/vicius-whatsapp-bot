@@ -585,6 +585,16 @@ export async function handleMessage({ sock, logger, menu, msg, slug }) {
     if (sint) historyAug = [...history, { role: 'assistant', content: sint }];
   }
 
+  // DIAG (2026-08-07, arrastre): el repro local con input limpio (history=[], estadoPedido=null) saluda
+  // limpio → el código está OK. Este log muestra el input REAL en runtime para cazar de dónde sale el
+  // contexto viejo (history contaminado vs estadoPedido). Quitar tras diagnosticar.
+  logger.info({
+    jid,
+    historyLen: historyAug.length,
+    estadoPedidoNull: estadoPedido === null,
+    sesion,
+    histTail: historyAug.slice(-3).map((h) => ({ r: h.role, c: String(h.content || '').slice(0, 70) })),
+  }, 'DIAG-arrastre: input al LLM');
   let respuesta;
   try {
     const result = await generarRespuesta({ menu, history: historyAug, userMessage: userText, sesion, estadoPedido });
