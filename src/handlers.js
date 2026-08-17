@@ -375,6 +375,16 @@ export async function handleMessage({ sock, logger, menu, msg, slug }) {
     return;
   }
 
+  // Switch on/off del local (B4 del sprint, decisión Alberto): si el dueño pausó el local, el bot NO toma
+  // pedidos por WhatsApp — igual que corta por horario. El flag `pausado` viene embebido en el menú
+  // (/api/menu-actual lo expone desde config). Chequeo determinista (NO depende del LLM), antes de ambos
+  // flujos (botones/IA), así ninguno responde con el local pausado.
+  if (menu?.pausado) {
+    logger.info({ jid, slug }, '⏸️ local pausado por el dueño — no se toman pedidos');
+    await sendBotMessage(sock, jid, { text: 'Por ahora no estamos tomando pedidos. ¡Te esperamos pronto! 🙌' });
+    return;
+  }
+
   // ── Tier básico (MODE=buttons): ruteo determinista por botones, SIN LLM. Aislado del flujo premium. ──
   if (MODE_BUTTONS) {
     // Pausa durable por handoff: si un humano está atendiendo (en_atencion_humana en el wizard), el bot
