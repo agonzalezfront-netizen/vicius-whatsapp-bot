@@ -104,6 +104,9 @@ try {
   check(!!pedidoDonPepe && pedidoDonPepe.items?.[0]?.proteina === 'Pescado Don Pepe', `pedido de donpepe con SU proteína (got ${pedidoDonPepe?.items?.[0]?.proteina})`);
   check((pedidoSazon?.items?.[0]?.agregados || []).includes('Arroz'), 'pedido de sazon con SUS acompañamientos (Arroz)');
   check((pedidoDonPepe?.items?.[0]?.agregados || []).includes('Papas'), 'pedido de donpepe con SUS acompañamientos (Papas)');
+  // Bloqueador #3 (multitenant): el pedido debe llevar local_slug para que el wizard sepa a QUÉ local pertenece.
+  check(pedidoSazon?.local_slug === 'sazon', `pedido de sazon lleva local_slug='sazon' (got ${pedidoSazon?.local_slug})`);
+  check(pedidoDonPepe?.local_slug === 'donpepe', `pedido de donpepe lleva local_slug='donpepe' (got ${pedidoDonPepe?.local_slug})`);
 } catch (e) {
   check(false, `manejarTurnoBotones con slug NO debe tirar (tiró: ${e.message})`);
 } finally {

@@ -65,9 +65,11 @@ async function persistir(jid, estado, logger) {
 // Dispara el pedido creado al panel + push al dueño + limpia el estado.
 // ESENCIAL: crearPedido NO debe fingir éxito. Ya reintenta ante 5xx; si igual falla, avisamos honesto
 // al cliente + escalamos al local (encargo resiliencia integral 2026-06-29). Recibe `sock` para avisar.
-async function finalizar(sock, jid, senderName, pedido, logger) {
+async function finalizar(sock, jid, senderName, pedido, logger, slug) {
   try {
-    const res = await crearPedido({ cliente_jid: jid, cliente_nombre: senderName ?? '', ...pedido });
+    // Multitenant (bloqueador #3): propagamos el local del turno al pedido → el wizard lo atribuye al tenant
+    // correcto. Sin slug (Baileys/Sazón sin tenant) NO se manda local_slug → el wizard cae a 'sazon' (idéntico a antes).
+    const res = await crearPedido({ cliente_jid: jid, cliente_nombre: senderName ?? '', ...pedido, ...(slug ? { local_slug: slug } : {}) });
     logger?.info?.({ jid, pedidoId: res?.id, total: pedido.total }, '🧾 pedido (tier básico) creado');
     const modalidad = pedido.tipo === 'delivery' ? 'DELIVERY' : 'RETIRO LOCAL';
     const ref = String(res?.id ?? '').slice(-4).toUpperCase();
@@ -165,5 +167,5 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
     escalarAHumano(jid, 'consulta-tier-basico').catch(() => {});
     await sock.sendMessage(jid, { text: 'Si tienes una consulta, te conecto con el local 🙂. Para seguir tu pedido, toca una opción o escribe su nombre 👇' });
   }
-  if (r.pedido) await finalizar(sock, jid, senderName, r.pedido, logger);
+  if (r.pedido) await finalizar(sock, jid, senderName, r.pedido, logger, slug);
 }
