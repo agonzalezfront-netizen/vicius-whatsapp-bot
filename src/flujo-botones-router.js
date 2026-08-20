@@ -51,10 +51,10 @@ async function enviar(sock, jid, salidas) {
 // igual los botones — perder la persistencia degrada a "re-saludar al próximo mensaje", nunca a
 // "pantalla sin botones" (bug 2026-06-29: un 520 en setEstadoFlujo abortaba el turno antes de la lista).
 // setEstadoFlujo ya reintenta ante 5xx; este catch es la última red para que el envío nunca se caiga.
-async function persistir(jid, estado, logger) {
+async function persistir(jid, estado, logger, slug) {
   try {
     if (estado) estado._ts = Date.now(); // BUG7: sello de tiempo para detectar estados FANTASMA (viejos) al cargar
-    await setEstadoFlujo(jid, estado);
+    await setEstadoFlujo(jid, estado, slug);   // multitenant #2: el estado se guarda scoped al local
     return true;
   } catch (e) {
     logger?.warn?.({ jid, err: e.message }, 'setEstadoFlujo falló — envío los botones igual (estado NO persistido)');
@@ -83,7 +83,7 @@ async function finalizar(sock, jid, senderName, pedido, logger, slug) {
     escalarAHumano(jid, 'crear-pedido-falla-tier-basico').catch(() => {});
     await sock.sendMessage(jid, { text: 'Recién te confirmé, pero tuve un problema al registrar el pedido en el sistema 😕. Le avisé al local para que lo tome a mano y te confirman en un momento 🙏' }).catch(() => {});
   }
-  await borrarEstadoFlujo(jid).catch(() => {});
+  await borrarEstadoFlujo(jid, slug).catch(() => {});
 }
 
 // Punto de entrada del tier básico. `btnId` = id crudo del botón/lista (o null); `texto` = texto libre.
@@ -92,7 +92,7 @@ async function finalizar(sock, jid, senderName, pedido, logger, slug) {
 // asignado todavía) cae al menú default — comportamiento idéntico al de antes de este cambio.
 export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto, logger, slug }) {
   const menu = getActiveMenu(slug);
-  let estado = await getEstadoFlujo(jid).catch(() => null);
+  let estado = await getEstadoFlujo(jid, slug).catch(() => null);
 
   // BUG4 (2026-07-15): TTL de sesión. Un estado mid-flow que quedó viejo (cliente que abandonó el pedido
   // horas/días atrás) NO debe sobrevivir: al escribir "hola" para pedir de nuevo recibía "No te entendí"
@@ -100,7 +100,7 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
   // !estado (saludo + menú fresco). Cubre el caso real de Alberto (8 días atascado en Carne Mechada).
   if (estado && sesionExpirada(estado, Date.now())) {
     logger?.info?.({ jid, paso: estado.paso, edadMin: estado._ts ? Math.round((Date.now() - estado._ts) / 60000) : null }, 'BUG4: sesión expirada por TTL → reseteo + arranco fresco');
-    await borrarEstadoFlujo(jid).catch(() => {});
+    await borrarEstadoFlujo(jid, slug).catch(() => {});
     estado = null;
   }
 
@@ -112,7 +112,7 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
     const ult = estado.paso === PASOS.CONFIRMAR ? await estadoUltimoPedido(jid).catch(() => null) : null;
     if (esEstadoFantasma(estado, ult, menu, Date.now())) {
       logger?.info?.({ jid, paso: estado.paso, ultStatus: ult?.status }, 'BUG7: estado fantasma de pedido ya emitido → reseteo + arranco fresco');
-      await borrarEstadoFlujo(jid).catch(() => {});
+      await borrarEstadoFlujo(jid, slug).catch(() => {});
       estado = null;
     }
   }
@@ -125,7 +125,7 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
     const menuTxt = renderMenuCliente(menu);
     if (menuTxt) await sock.sendMessage(jid, payloadDe(menuTxt));
     const r0 = procesar(estado, { tipo: 'init' }, menu); // input neutro → re-render del paso inicial (PROTEINA)
-    await persistir(jid, r0.estado, logger); // no-fatal: si el wizard 5xx-ea, igual mandamos los botones
+    await persistir(jid, r0.estado, logger, slug); // no-fatal: si el wizard 5xx-ea, igual mandamos los botones
     await enviar(sock, jid, r0.salidas);
     return;
   }
@@ -158,7 +158,7 @@ export async function manejarTurnoBotones({ sock, jid, senderName, btnId, texto,
     }
   }
 
-  await persistir(jid, r.estado, logger); // no-fatal: un 5xx del wizard no debe tragarse la respuesta
+  await persistir(jid, r.estado, logger, slug); // no-fatal: un 5xx del wizard no debe tragarse la respuesta
   await enviar(sock, jid, r.salidas);
   // R2-9: si el pedido se confirmó con pago por transferencia, enviar los datos bancarios reales tras el cierre.
   if (r.pedido?.metodo_pago === 'transferencia') await enviarDatosTransferencia(sock, jid, menu, logger);

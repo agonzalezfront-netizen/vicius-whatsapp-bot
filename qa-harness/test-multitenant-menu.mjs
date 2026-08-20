@@ -51,7 +51,11 @@ check(getActiveMenu('sazon')?.proteinas_dia?.[0]?.nombre === 'Pollo Sazón', 'el
 
 console.log('\n=== B) Router real (manejarTurnoBotones) — 2 clientes, 2 locales, fetch mockeado (sin red) ===');
 // Mock de wizard: estado-flujo (persistencia) en memoria + captura de los pedidos creados.
+// Mock del wizard con la MISMA key compuesta que el backend real (bloqueador #2): (jid, local_slug).
+// Así el test refleja el aislamiento real y captura si el bot NO propaga el local.
 const estados = new Map();
+const kEstado = (jid, local) => `${jid}::${local || 'sazon'}`;
+const estadoCalls = [];   // registra qué local usó el bot en cada llamada de estado
 const pedidosCreados = [];
 const origFetch = globalThis.fetch;
 globalThis.fetch = async (url, opts = {}) => {
@@ -59,17 +63,23 @@ globalThis.fetch = async (url, opts = {}) => {
   const m = opts.method || 'GET';
   const ok = (o) => ({ ok: true, status: 200, json: async () => o, text: async () => JSON.stringify(o) });
   if (u.includes('/api/flujo-estado/borrar')) {
-    try { estados.delete(JSON.parse(opts.body).cliente_jid); } catch { /* noop */ }
+    const b = JSON.parse(opts.body);
+    estadoCalls.push({ op: 'borrar', jid: b.cliente_jid, local: b.local_slug || 'sazon' });
+    estados.delete(kEstado(b.cliente_jid, b.local_slug));
     return ok({ ok: true });
   }
   if (u.includes('/api/flujo-estado') && m === 'POST') {
     const b = JSON.parse(opts.body);
-    estados.set(b.cliente_jid, b.estado);
+    estadoCalls.push({ op: 'set', jid: b.cliente_jid, local: b.local_slug || 'sazon' });
+    estados.set(kEstado(b.cliente_jid, b.local_slug), b.estado);
     return ok({ ok: true });
   }
   if (u.includes('/api/flujo-estado')) {
-    const jid = decodeURIComponent(u.split('jid=')[1] || '');
-    return ok({ estado: estados.get(jid) ?? null });
+    const params = new URLSearchParams(u.split('?')[1] || '');
+    const jid = params.get('jid') || '';
+    const local = params.get('local') || 'sazon';
+    estadoCalls.push({ op: 'get', jid, local });
+    return ok({ estado: estados.get(kEstado(jid, local)) ?? null });
   }
   if (u.includes('/api/pedidos') && m === 'POST') {
     const b = JSON.parse(opts.body);
@@ -107,8 +117,26 @@ try {
   // Bloqueador #3 (multitenant): el pedido debe llevar local_slug para que el wizard sepa a QUÉ local pertenece.
   check(pedidoSazon?.local_slug === 'sazon', `pedido de sazon lleva local_slug='sazon' (got ${pedidoSazon?.local_slug})`);
   check(pedidoDonPepe?.local_slug === 'donpepe', `pedido de donpepe lleva local_slug='donpepe' (got ${pedidoDonPepe?.local_slug})`);
+  // Bloqueador #2: el estado de flujo se persiste/lee scoped al local (no colisiona entre tenants).
+  check(estadoCalls.some((c) => c.op === 'set' && c.local === 'donpepe'), 'el bot PERSISTE el estado con local=donpepe');
+  check(estadoCalls.some((c) => c.op === 'get' && c.local === 'donpepe'), 'el bot LEE el estado con local=donpepe (no el default)');
 } catch (e) {
   check(false, `manejarTurnoBotones con slug NO debe tirar (tiró: ${e.message})`);
+}
+// (el fetch mockeado se mantiene para el test D de abajo; se restaura al final)
+
+console.log('\n=== D) Mismo jid en 2 locales — el estado NO colisiona (bloqueador #2) ===');
+try {
+  const JID = '56900000000@s.whatsapp.net';
+  await manejarTurnoBotones({ sock, jid: JID, senderName: 'X', btnId: null, texto: 'hola', logger, slug: 'sazon' });
+  await manejarTurnoBotones({ sock, jid: JID, senderName: 'X', btnId: 'prot:0', texto: null, logger, slug: 'sazon' });
+  await manejarTurnoBotones({ sock, jid: JID, senderName: 'X', btnId: null, texto: 'hola', logger, slug: 'donpepe' }); // MISMO jid, otro local
+  const eSazon = estados.get(kEstado(JID, 'sazon'));
+  const eDonpepe = estados.get(kEstado(JID, 'donpepe'));
+  check(!!eSazon, 'el estado de sazon sigue vivo tras un turno de donpepe con el MISMO jid (no lo pisó)');
+  check(!!eDonpepe && eSazon !== eDonpepe, 'sazon y donpepe tienen estados SEPARADOS para el mismo jid');
+} catch (e) {
+  check(false, `mismo jid en 2 locales NO debe romper (tiró: ${e.message})`);
 } finally {
   globalThis.fetch = origFetch;
 }

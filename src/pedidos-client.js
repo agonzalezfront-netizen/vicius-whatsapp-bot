@@ -115,29 +115,30 @@ export async function estadoUltimoPedido(jid) {
 
 // ── Tier básico (MODE=buttons): estado parcial del pedido por jid, persistido en el wizard ──
 // (sobrevive redeploys de Railway — el pedido a medio armar no se pierde).
-export async function getEstadoFlujo(jid) {
-  const res = await fetchConReintento(`${WIZARD_BASE}/api/flujo-estado?jid=${encodeURIComponent(jid)}`, {
+export async function getEstadoFlujo(jid, slug) {
+  const q = `jid=${encodeURIComponent(jid)}${slug ? `&local=${encodeURIComponent(slug)}` : ''}`;
+  const res = await fetchConReintento(`${WIZARD_BASE}/api/flujo-estado?${q}`, {
     headers: { Authorization: WIZARD_AUTH, 'User-Agent': UA },
   });
   if (!res.ok) throw new Error(`getEstadoFlujo HTTP ${res.status}`);
   return (await res.json()).estado ?? null;
 }
 
-export async function setEstadoFlujo(jid, estado) {
+export async function setEstadoFlujo(jid, estado, slug) {
   const res = await fetchConReintento(`${WIZARD_BASE}/api/flujo-estado`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
-    body: JSON.stringify({ cliente_jid: jid, estado }),
+    body: JSON.stringify({ cliente_jid: jid, estado, ...(slug ? { local_slug: slug } : {}) }),
   });
   if (!res.ok) throw new Error(`setEstadoFlujo HTTP ${res.status}`);
   return res.json();
 }
 
-export async function borrarEstadoFlujo(jid) {
+export async function borrarEstadoFlujo(jid, slug) {
   const res = await fetchConReintento(`${WIZARD_BASE}/api/flujo-estado/borrar`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json; charset=utf-8', Authorization: WIZARD_AUTH, 'User-Agent': UA },
-    body: JSON.stringify({ cliente_jid: jid }),
+    body: JSON.stringify({ cliente_jid: jid, ...(slug ? { local_slug: slug } : {}) }),
   });
   if (!res.ok) throw new Error(`borrarEstadoFlujo HTTP ${res.status}`);
   return res.json();
