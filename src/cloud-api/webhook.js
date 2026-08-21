@@ -19,6 +19,24 @@ import { makeCloudSock, normalizeIncoming } from './adapter.js';
 const VERIFY_TOKEN = () => process.env.WA_VERIFY_TOKEN ?? '';
 const APP_SECRET = () => process.env.WA_APP_SECRET ?? '';
 
+// Dedup de reentregas (auditoría #medium): Meta reintenta el webhook si el 200 tarda (el turno LLM puede
+// demorar decenas de segundos con los retries de Anthropic) → el MISMO mensaje se procesaría 2×: doble
+// respuesta y, si era la elección de pago, dos crearPedido concurrentes → pedido duplicado. Recordamos los
+// message-ids ya vistos por una ventana corta y saltamos los repetidos.
+const _procesados = new Map();          // wa_message_id -> ts
+const _DEDUP_TTL_MS = 5 * 60 * 1000;    // ventana de reentregas de Meta
+
+function _yaProcesado(id) {
+  if (!id) return false;
+  const now = Date.now();
+  for (const [k, t] of _procesados) {   // poda perezosa de lo viejo (evita crecer sin fin)
+    if (now - t > _DEDUP_TTL_MS) _procesados.delete(k);
+  }
+  if (_procesados.has(id)) return true;
+  _procesados.set(id, now);
+  return false;
+}
+
 // Verificación del handshake GET. `query` = objeto con los params hub.*.
 export function handleVerify(query) {
   const mode = query['hub.mode'];
@@ -85,6 +103,10 @@ export async function handleIncoming(rawBody, signatureHeader, ctx) {
       const sock = makeCloudSock(client, logger);
       const msgs = normalizeIncoming(value);
       for (const msg of msgs) {
+        if (_yaProcesado(msg?.key?.id)) {   // reentrega de Meta del mismo mensaje → ya procesado
+          logger.info?.({ id: msg?.key?.id }, 'webhook: mensaje duplicado (reentrega) ignorado');
+          continue;
+        }
         try {
           // Multitenant F1.5: el slug del tenant (mapeado a su local en el wizard) viaja en el ctx
           // de CADA mensaje → handleMessage lo pasa al ciclo por turno, que pide el menú de ESE local.
