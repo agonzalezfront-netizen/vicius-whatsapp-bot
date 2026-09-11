@@ -7,6 +7,7 @@ import { handleVerify, handleIncoming } from './cloud-api/webhook.js';
 import { tenantCount } from './cloud-api/tenants.js';
 import { generarRespuesta } from './claude.js';
 import { actualizarEstadoMensaje } from './comunicaciones-client.js';
+import { contadoresPorMes } from './derivacion-registro.js';
 
 // Handoff v1: estados de entrega → wizard. Flag-gated (COMUNICACIONES_ENABLED).
 const COMUNICACIONES = (process.env.COMUNICACIONES_ENABLED ?? 'false') === 'true';
@@ -95,6 +96,23 @@ export function startQRServer(logger, opts = {}) {
       });
       res.end();
       return;
+    }
+
+    // CONTRATO WhatsApp — contadores del módulo del panel (Cortex 18:12). GET /tenants/<slug>/wa-contadores?mes=YYYY-MM
+    // Lee el registro per-tenant (derivacion-registro): entradas/reenvíos/avisos/masivos del mes. El wizard lo
+    // consume con caché 60 s + fallback "sin datos" (nunca ceros) → el módulo del panel muestra el consumo.
+    {
+      const _wacMatch = req.url.split('?')[0].match(/^\/tenants\/([a-z0-9-]{1,40})\/wa-contadores$/);
+      if (_wacMatch && req.method === 'GET') {
+        const slug = _wacMatch[1];
+        const u = new URL(req.url, 'http://localhost');
+        const mes = (u.searchParams.get('mes') || '').match(/^\d{4}-\d{2}$/)
+          ? u.searchParams.get('mes')
+          : new Intl.DateTimeFormat('en-CA', { timeZone: process.env.TZ ?? 'America/Santiago', year: 'numeric', month: '2-digit' })
+              .format(new Date()).slice(0, 7);
+        jsonResponse(res, 200, { tenant: slug, ...contadoresPorMes(slug, mes) });
+        return;
+      }
     }
 
     if (req.url === '/healthz') {

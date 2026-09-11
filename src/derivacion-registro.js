@@ -91,8 +91,15 @@ export function registrarAvisoSaliente(tenant, nowMs = Date.now()) {
 // Contadores del mes para el export/panel (ADDENDUM 3): {entrada, reenvio, aviso}. entrada+reenvio = mensajes
 // de entrada consumidos (contra los 1.000 gratis de Meta); aviso = plantillas salientes iniciadas por el local.
 export function contadoresDelMes(tenant, nowMs = Date.now()) {
+  return contadoresPorMes(tenant, _mes(nowMs));
+}
+
+// Igual pero por CLAVE de mes explícita ("YYYY-MM") — lo consume el endpoint /tenants/<slug>/wa-contadores del
+// panel (Cortex 18:12). `masivos` aún no se registra (pestaña 4) → 0 por ahora.
+export function contadoresPorMes(tenant, mesKey) {
   const reg = _cargar();
-  return { ...{ entrada: 0, reenvio: 0, aviso: 0 }, ...(reg.contadores[`${tenant}|${_mes(nowMs)}`] ?? {}) };
+  const c = reg.contadores[`${tenant}|${mesKey}`] ?? {};
+  return { entrada: c.entrada || 0, reenvio: c.reenvio || 0, aviso: c.aviso || 0, masivo: c.masivo || 0, mes: mesKey };
 }
 
 // Solo para tests: fuerza recargar del archivo (los tests reescriben/borran el archivo entre casos).
