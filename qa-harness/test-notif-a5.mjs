@@ -19,10 +19,14 @@ check('sin_respuesta verbatim', textoPara({ tipo: 'sin_respuesta', razon: SR }) 
 check('listo con razón (a tiempo) verbatim', textoPara({ tipo: 'listo', razon: LISTO_OK }) === LISTO_OK);
 check('listo con razón (disculpa) verbatim', textoPara({ tipo: 'listo', razon: LISTO_DISC }) === LISTO_DISC);
 
+const DESPACHO = '¡Tu pedido está listo y sale en camino.';
+check('en_camino con razón (despacho) verbatim', textoPara({ tipo: 'en_camino', razon: DESPACHO }) === DESPACHO);
+
 console.log('\n— Bordes —');
 check('ya_casi sin razón → null (no manda basura)', textoPara({ tipo: 'ya_casi' }) === null);
 check('sin_respuesta sin razón → null', textoPara({ tipo: 'sin_respuesta', razon: '   ' }) === null);
 check('listo SIN razón conserva el aviso de retiro con dirección (legacy)', /retirar/i.test(textoPara({ tipo: 'listo' })));
+check('en_camino SIN razón conserva el aviso legacy', /camino/i.test(textoPara({ tipo: 'en_camino' })));
 
 console.log('\n— Regresión: tipos previos intactos —');
 check('validado', /cocina|confirmad/i.test(textoPara({ tipo: 'validado' })));

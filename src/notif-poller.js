@@ -53,13 +53,14 @@ export function textoPara(p) {
     case 'rechazado': return msgRechazado(p.razon);
     case 'cancelado': return msgCancelado(p.razon);
     case 'cancelado_por_dueño': return msgCancelado(p.razon); // por si el backend manda el status como tipo
-    case 'en_camino': return msgEnCamino();
-    // A5 (Cortex 18:00, opción A): la copy la fija el WIZARD en notif_razon y el bot la manda VERBATIM (no
-    // reformula ni concatena). 'listo' con razón = las 2 versiones de A5 (con/sin disculpa); sin razón = el
-    // aviso de retiro con la dirección (legacy). 'ya_casi'/'sin_respuesta' siempre traen su razón del wizard.
+    // A5 (Cortex 18:00/19:20, opción A/1): la copy la fija el WIZARD en notif_razon y el bot la manda VERBATIM
+    // (no reformula ni concatena). 'listo' con razón = retiro con dirección / mesa (2 versiones con/sin disculpa);
+    // 'en_camino' con razón = despacho "sale en camino" (+disculpa); sin razón, ambos caen al legacy.
+    // 'ya_casi'/'sin_respuesta' siempre traen su razón del wizard.
     case 'ya_casi': return (p.razon || '').trim() || null;
     case 'sin_respuesta': return (p.razon || '').trim() || null;
     case 'listo': return (p.razon || '').trim() || msgListo();
+    case 'en_camino': return (p.razon || '').trim() || msgEnCamino();
     case 'entregado': return msgEntregado();
     case 'retirado': return msgRetirado();
     default: return null; // tipo desconocido → no mandamos (se limpia el flag)
