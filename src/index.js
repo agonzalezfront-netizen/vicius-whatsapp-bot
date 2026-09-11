@@ -131,7 +131,12 @@ async function bootstrap() {
         // en sí (rmSync del mountpoint falla con EBUSY/EPERM). Borramos su CONTENIDO
         // (creds.json + todas las sesiones), dejando el mountpoint intacto.
         if (fs.existsSync(AUTH_DIR)) {
+          // Preservar el registro de derivación (contrato WhatsApp p1): vive en este volumen para durabilidad,
+          // pero NO es auth-state — borrarlo en un re-pair reabriría la ventana de "1 saliente" y podría mandar
+          // un mensaje único duplicado a clientes activos. Lo conservamos (y su temp) al limpiar el auth.
+          const PRESERVAR = new Set(['derivacion-registro.json']);
           for (const f of fs.readdirSync(AUTH_DIR)) {
+            if (PRESERVAR.has(f) || f.startsWith('derivacion-registro.json.tmp-')) continue;
             fs.rmSync(path.join(AUTH_DIR, f), { recursive: true, force: true });
           }
         } else {

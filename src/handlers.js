@@ -6,6 +6,15 @@ import { calcularPedido, construirResumen } from './precios.js';
 import { registrarMensaje, botPausado, escalarAHumano } from './comunicaciones-client.js';
 import { enviarPushEquipo } from './push.js';
 import { manejarTurnoBotones } from './flujo-botones-router.js';
+import { getWaConfig } from './wa-config.js';
+import { registrarContactoDerivacion } from './derivacion-registro.js';
+
+// Fallback si el wizard no devolvió copy (caché frío + wizard caído). Digno y con los 3 requisitos de Alberto
+// (16:00): link a la carta, único mensaje por WhatsApp, guardar el chat. La copy real vive en el wizard.
+const COPY_DERIVACION_FALLBACK =
+  '¡Hola! 👋 Todos nuestros pedidos se hacen desde nuestra carta digital — ahí armas tu pedido, subes el ' +
+  'comprobante y sigues su preparación en vivo. Este es el único mensaje que responde este número.\n' +
+  '💡 Guarda este chat para pedir cuando quieras.';
 
 // Sección Comunicaciones (handoff v1). Flag OFF por default → comportamiento idéntico
 // al actual (cero riesgo al deployar). ON cuando el wizard tenga los endpoints + la UI:
@@ -372,6 +381,27 @@ export async function handleMessage({ sock, logger, menu, msg, slug }) {
   // límite en la ventana, el bot deja de responderle (silencioso) hasta que baje.
   if (!pasaRateLimit(jid, Date.now())) {
     logger.warn({ jid }, '🛑 rate-limit excedido — mensaje ignorado');
+    return;
+  }
+
+  // ── CONTRATO WhatsApp p1 — modo DERIVACIÓN ──────────────────────────────────────────────────────
+  // Si el local está en `wa_modo: 'derivacion'`, el bot NO conversa ni arma pedidos: manda UN mensaje
+  // único que deriva a la carta y calla durante la ventana (wa_ventana_horas). Pasada la ventana, si el
+  // cliente vuelve a escribir, se le REENVÍA (cuenta otro primer contacto; ADDENDUM 2). Comprobante,
+  // confirmación y seguimiento viven en la app. La guarda de clase (exactamente 1 saliente por cliente
+  // por ventana) es determinista y server-independiente (derivacion-registro.js, no depende del LLM).
+  // Va ANTES de `pausado`/botones/LLM: en derivación, el único saliente posible es el mensaje único.
+  const waCfg = await getWaConfig(slug ?? 'sazon');
+  if (waCfg.modo === 'derivacion') {
+    const ventanaMs = (Number(waCfg.ventana_horas) || 24) * 3600 * 1000;
+    const dec = registrarContactoDerivacion(slug ?? 'sazon', jid, ventanaMs, Date.now());
+    if (dec.enviar) {
+      const copy = waCfg.copy || COPY_DERIVACION_FALLBACK;
+      await sendBotMessage(sock, jid, { text: copy });
+      logger.info({ jid, slug, tipo: dec.tipo }, '📨 modo derivación: mensaje único enviado');
+    } else {
+      logger.info({ jid, slug }, '🤫 modo derivación: dentro de la ventana → silencio');
+    }
     return;
   }
 
