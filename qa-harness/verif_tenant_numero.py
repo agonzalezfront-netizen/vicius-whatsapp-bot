@@ -63,6 +63,9 @@ def _chequeo_healthz(fails):
     except Exception as e:   # noqa: BLE001 — red no disponible no es una falla del invariante
         print(f"  ..  /healthz no alcanzable ({type(e).__name__}) -> salto (red)")
         return
+    if (data.get("cloud_api") or {}).get("default_cerrado") or data.get("default_cerrado"):
+        print("  ok  slot default CERRADO a propósito (LOCAL_DEFAULT_CERRADO) -> responde neutro, no sirve el menú viejo")
+        return
     am = data.get("active_menu")
     if not am:
         print("  ok  slot default sin menú (nadie cae a una carta ajena)")

@@ -123,6 +123,10 @@ export function startQRServer(logger, opts = {}) {
         commit: (process.env.RAILWAY_GIT_COMMIT_SHA ?? 'dev').slice(0, 7),
         build: 'pedido-carrito-v1',
         active_menu: m ? { id: m.id, day_label: m.day_label, published_at: m.published_at } : null,
+        // Ítem 3 (18-09): el slot default está sacado de circulación (Sazón cerró). Aunque active_menu
+        // siga cargado (menú viejo), el bot NO lo sirve → responde neutro. El sensor verif_tenant_numero
+        // usa este flag para NO marcar el default viejo como falla cuando está intencionalmente cerrado.
+        default_cerrado: /^(1|true|yes|on)$/i.test(process.env.LOCAL_DEFAULT_CERRADO ?? ''),
         // Diagnóstico Cloud API (booleans, NO expone valores de secretos).
         cloud_api: {
           transport: (process.env.TRANSPORT ?? 'baileys').toLowerCase(),
