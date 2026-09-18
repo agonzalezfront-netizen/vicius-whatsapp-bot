@@ -1,0 +1,197 @@
+{
+  "_archivado": {
+    "motivo": "Sazón cerró (banco de pruebas). Menú del slot default del bot, sacado de circulación (LOCAL_DEFAULT_CERRADO). Exportado read-only; el wizard no tiene backup de datos.",
+    "exportado_en": "2026-09-18T16:48:01.160Z",
+    "fuente": "https://viciusstudio.cl/wizard/api/menu-actual",
+    "day_label": "Viernes 1",
+    "published_at": "2026-06-25T00:06:54.892Z"
+  },
+  "menu": {
+    "menu": {
+      "agregados_incluidos": [
+        "Arroz",
+        "Tajadas",
+        "Puré",
+        "Ensalada mixta"
+      ],
+      "bebida_incluida": [
+        "Consomé"
+      ],
+      "day_code": "V",
+      "day_label": "Viernes 1",
+      "extras_pagados": [
+        {
+          "nombre": "Papas fritas",
+          "precio": 2000
+        },
+        {
+          "nombre": "Tostones al ajillo",
+          "precio": 2000
+        },
+        {
+          "nombre": "Quesillo",
+          "precio": 2500
+        },
+        {
+          "nombre": "Coca lata",
+          "precio": 2000
+        },
+        {
+          "nombre": "Coca Zero",
+          "precio": 2000
+        },
+        {
+          "nombre": "Coca 1,5L",
+          "precio": 3000
+        }
+      ],
+      "horario": {
+        "dias": {
+          "0": [
+            [
+              "12:00",
+              "19:00"
+            ]
+          ],
+          "1": [
+            [
+              "12:00",
+              "19:00"
+            ]
+          ],
+          "2": [
+            [
+              "12:00",
+              "19:00"
+            ]
+          ],
+          "3": [
+            [
+              "12:00",
+              "19:00"
+            ]
+          ],
+          "4": [
+            [
+              "12:00",
+              "19:00"
+            ]
+          ],
+          "5": [
+            [
+              "12:00",
+              "19:00"
+            ]
+          ],
+          "6": [
+            [
+              "12:00",
+              "18:00"
+            ]
+          ]
+        }
+      },
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=El+saz%C3%B3n+de+Carla+y+C%C3%A9sar+Av.+Vicu%C3%B1a+Mackenna+Ote.+6571+La+Florida",
+      "platos_especiales": [
+        {
+          "agregados_incluidos": [],
+          "componentes": [
+            {
+              "nombre": "Arroz",
+              "reemplazable": false
+            }
+          ],
+          "desc": "Especial del día",
+          "nombre": "Albacora",
+          "precio": 9000
+        }
+      ],
+      "price_typical": 7000,
+      "proteinas_dia": [
+        {
+          "disponible": true,
+          "nombre": "Carne Mechada"
+        },
+        {
+          "disponible": true,
+          "nombre": "Pescado Frito"
+        },
+        {
+          "disponible": true,
+          "nombre": "Chuleta Ahumada"
+        },
+        {
+          "disponible": true,
+          "nombre": "Pulpa al Vino"
+        },
+        {
+          "disponible": true,
+          "nombre": "Lentejas"
+        }
+      ],
+      "published_at": "2026-06-25T00:06:54.892Z",
+      "repertorio": {
+        "agregados": [
+          "Arroz",
+          "Puré",
+          "Tajadas",
+          "Papas fritas",
+          "Vegetales cocidos",
+          "Ensalada mixta"
+        ],
+        "bebidas": [
+          "Jugo natural",
+          "Consomé"
+        ],
+        "especiales": [
+          {
+            "agregados_incluidos": [],
+            "desc": "Plato completo · viene preparado",
+            "nombre": "Pabellón criollo",
+            "precio": 9000
+          },
+          {
+            "agregados_incluidos": [],
+            "desc": "Especial del día",
+            "nombre": "Albacora",
+            "precio": 9000
+          }
+        ],
+        "extras": [
+          {
+            "nombre": "Papas fritas",
+            "precio": 2000
+          },
+          {
+            "nombre": "Tostones al ajillo",
+            "precio": 2000
+          },
+          {
+            "nombre": "Quesillo",
+            "precio": 2500
+          },
+          {
+            "nombre": "Coca lata",
+            "precio": 2000
+          },
+          {
+            "nombre": "Coca Zero",
+            "precio": 2000
+          },
+          {
+            "nombre": "Coca 1,5L",
+            "precio": 3000
+          }
+        ],
+        "proteinas": [
+          "Carne Mechada",
+          "Chuleta Ahumada",
+          "Pescado Frito",
+          "Pulpa al Vino",
+          "Lentejas"
+        ]
+      }
+    },
+    "updated_at": "2026-08-04T15:37:09.366034"
+  }
+}

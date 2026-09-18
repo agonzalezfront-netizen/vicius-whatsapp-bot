@@ -19,6 +19,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 const REG = path.join(os.tmpdir(), `deriv-test-modo-app-${process.pid}.json`);
 process.env.DERIVACION_REGISTRO_PATH = REG;
+process.env.LOCAL_DEFAULT_CERRADO = 'true';   // ítem 3: Sazón cerró → el slot default responde neutro dedup-safe
 try { fs.rmSync(REG, { force: true }); } catch { /* no existía */ }
 
 const { loadTenantsFromEnv, getTenant } = await import('../src/cloud-api/tenants.js');
@@ -57,9 +58,20 @@ await handleMessage({ sock: s, logger, menu: {}, msg: msg('Hola', 'a1'), slug: '
 check(s.sent.length === 1, 'exactamente 1 saliente');
 check((s.sent[0]?.payload?.text || '').includes('/pedir/asushi'), 'el mensaje trae el link de la carta (del config)');
 check(!/plato del d[ií]a|menú de hoy|armemos tu pedido/i.test(s.sent[0]?.payload?.text || ''), 'NO es el flujo conversacional del menú');
+// Guarda de CLASE (retoques Cortex 18-09): TODO copy que sale por WhatsApp sin raya larga (—, delata bot) ni
+// mención de "pago" (el pago en línea no está encendido). memorias feedback_sin_guiones_largos_en_whatsapp +
+// feedback_copy_derivar_de_fuente_de_verdad.
+const txtApp = s.sent[0]?.payload?.text || '';
+check(!/[—–]/.test(txtApp), 'copy modo app SIN raya larga (— ni –)');
+check(!/\bpago\b/i.test(txtApp), 'copy modo app NO menciona "pago" (pago en línea off)');
 await handleMessage({ sock: s, logger, menu: {}, msg: msg('Hola otra vez', 'a2'), slug: 'asushi',
   tenantModo: 'app', cartaUrl: t.cartaUrl, tenantName: 'A Sushi' });
 check(s.sent.length === 1, '2º mensaje dentro de la ventana → silencio (guarda determinista, 1 saliente por ventana)');
+// Fallback (sin cartaUrl) también debe salir sin raya larga.
+const sf = mockSock();
+await handleMessage({ sock: sf, logger, menu: {}, msg: msg('Hola', 'f1'), slug: 'otrofallback',
+  tenantModo: 'app', cartaUrl: null, tenantName: 'Otro' });
+check(!/[—–]/.test(sf.sent[0]?.payload?.text || ''), 'copy fallback de derivación SIN raya larga');
 
 console.log('\n=== C) sin menú propio ni modo app → neutro (no la carta vieja del Sazón en el default) ===');
 clearActiveMenu();
@@ -72,7 +84,16 @@ check(s2.sent.length === 1, '1 saliente');
 check(/no estamos tomando pedidos/i.test(s2.sent[0]?.payload?.text || ''), 'mensaje neutro');
 check(!/plato del d[ií]a/i.test(s2.sent[0]?.payload?.text || ''), 'NO sirve la carta vieja del Sazón (default)');
 
+console.log('\n=== E) Sazón cerró (LOCAL_DEFAULT_CERRADO) → el slot default responde neutro dedup-safe ===');
+const s3 = mockSock();
+await handleMessage({ sock: s3, logger, menu: {}, msg: msg('Hola', 'e1'), slug: 'sazon' });
+check(s3.sent.length === 1, '1 saliente');
+check(/no estamos tomando pedidos/i.test(s3.sent[0]?.payload?.text || ''), 'mensaje neutro (no el menú de junio)');
+check(!/plato del d[ií]a/i.test(s3.sent[0]?.payload?.text || ''), 'NO sirve el menú viejo del Sazón');
+await handleMessage({ sock: s3, logger, menu: {}, msg: msg('Hola de nuevo', 'e2'), slug: 'sazon' });
+check(s3.sent.length === 1, '2º mensaje dentro de la ventana → silencio (neutro dedup-safe)');
+
 globalThis.fetch = origFetch;
 try { fs.rmSync(REG, { force: true }); } catch { /* best-effort */ }
-console.log(fails ? `\nFALLA: ${fails} check(s)` : '\nOK modo-app (A/B/C)');
+console.log(fails ? `\nFALLA: ${fails} check(s)` : '\nOK modo-app (A/B/C/E)');
 process.exit(fails ? 1 : 0);

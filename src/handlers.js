@@ -12,7 +12,7 @@ import { registrarContactoDerivacion } from './derivacion-registro.js';
 // Fallback si el wizard no devolvió copy (caché frío + wizard caído). Digno y con los 3 requisitos de Alberto
 // (16:00): link a la carta, único mensaje por WhatsApp, guardar el chat. La copy real vive en el wizard.
 const COPY_DERIVACION_FALLBACK =
-  '¡Hola! 👋 Todos nuestros pedidos se hacen desde nuestra carta digital — ahí armas tu pedido, subes el ' +
+  '¡Hola! 👋 Todos nuestros pedidos se hacen desde nuestra carta digital: ahí armas tu pedido, subes el ' +
   'comprobante y sigues su preparación en vivo. Este es el único mensaje que responde este número.\n' +
   '💡 Guarda este chat para pedir cuando quieras.';
 
@@ -20,14 +20,36 @@ const COPY_DERIVACION_FALLBACK =
 // hardcodeada. La usa el número en modo app cuando el wizard no trae una copy propia para ese local.
 function copyApp(name, url) {
   const n = name && name !== 'sazon' ? name : 'nuestro local';
+  // Sin raya larga (delata texto redactado; memoria feedback_sin_guiones_largos_en_whatsapp) y SIN mencionar
+  // "pago": el pago en línea todavía no está encendido — el cliente paga al retirar/recibir (Cortex 18-09,
+  // memoria feedback_copy_derivar_de_fuente_de_verdad). Cuando se encienda, se suma.
   return `¡Hola! 👋 Bienvenido a ${n}. Mira la carta y haz tu pedido acá: ${url}\n` +
-    'Es el único mensaje por WhatsApp — el pedido, el pago y el seguimiento van en la carta. 💡 Guarda este chat.';
+    'Este es el único mensaje por WhatsApp: el pedido y su seguimiento van en la carta. 💡 Guarda este chat.';
 }
 
 // Mensaje neutro para un número cuyo local no tiene menú propio ni modo app (ej. quedó sin carta o el local
-// cerró): NO servimos la carta de otro local. Un solo saliente, dedup-safe por el webhook.
+// cerró): NO servimos la carta de otro local. Un solo saliente por ventana (ver responderNeutroDedup).
 const COPY_SIN_LOCAL =
   'Por este número no estamos tomando pedidos en este momento. Gracias por escribir. 🙏';
+
+// Ítem 3 (18-09): el Sazón CERRÓ (banco de pruebas, sin cliente real — Cortex 18-09). Ningún número debe caer a
+// su menú default viejo (junio). Flag REVERSIBLE bot-side: con LOCAL_DEFAULT_CERRADO on, el slot default responde
+// neutro dedup-safe en vez del menú stale, SIN mutar el dato del wizard (que no tiene backup; el menú de junio se
+// exporta a archivado/). Si el Sazón reabre, se apaga el flag y el número vuelve al flujo de menú.
+const DEFAULT_CERRADO = /^(1|true|yes|on)$/i.test(process.env.LOCAL_DEFAULT_CERRADO ?? '');
+
+// Neutro DEDUP-SAFE: exactamente 1 saliente por (clave, jid) por ventana, reusando la guarda determinista de
+// derivación (derivacion-registro.js). `registroKey` va aparte de los tenants reales (prefijo neutro:) para no
+// tocar sus contadores de facturación. Sin esto, un cliente que insiste recibiría un neutro por cada mensaje.
+async function responderNeutroDedup(sock, jid, registroKey, texto, logger) {
+  const dec = registrarContactoDerivacion(registroKey, jid, 24 * 3600 * 1000, Date.now());
+  if (dec.enviar) {
+    await sendBotMessage(sock, jid, { text: texto });
+    logger.info?.({ jid, registroKey }, '📨 neutro (dedup-safe) enviado');
+  } else {
+    logger.info?.({ jid, registroKey }, '🤫 neutro dentro de la ventana → silencio');
+  }
+}
 
 // Sección Comunicaciones (handoff v1). Flag OFF por default → comportamiento idéntico
 // al actual (cero riesgo al deployar). ON cuando el wizard tenga los endpoints + la UI:
@@ -424,12 +446,17 @@ export async function handleMessage({ sock, logger, menu, msg, slug, tenantModo 
     return;
   }
 
-  // BUG 2324 — "matar el default": un número con slug propio (≠ sazon) que NO tiene menú propio publicado ni modo
-  // app NO debe caer al menú default (la carta vieja del Sazón). Responde un mensaje neutro y corta (dedup-safe).
-  // (El Sazón usa el slot default; no lo tocamos acá — el menú viejo se ARCHIVA aparte, ver PROVISION-numero-tenant.md.)
-  if (slug && slug !== 'sazon' && !hasOwnMenu(slug)) {
-    logger.warn({ jid, slug }, '⚠️ tenant sin menú propio ni modo app — no servimos el default; mensaje neutro');
-    await sendBotMessage(sock, jid, { text: COPY_SIN_LOCAL });
+  // BUG 2324 + ítem 3 — "matar el default": ningún número cae al menú default viejo del Sazón.
+  //  - slug propio (≠ sazon) SIN menú propio ni modo app → no servimos la carta de otro local (bug 2324 original).
+  //  - LOCAL_DEFAULT_CERRADO on → el Sazón cerró: el slot default (slug 'sazon' o sin slug) tampoco sirve el menú
+  //    stale de junio. En ambos casos: neutro DEDUP-SAFE (1 saliente por ventana). El menú de junio se ARCHIVA
+  //    aparte (archivado/, ver PROVISION-numero-tenant.md); acá NO se muta el dato del wizard.
+  const sinMenuPropio = slug && slug !== 'sazon' && !hasOwnMenu(slug);
+  const defaultCerrado = DEFAULT_CERRADO && (!slug || slug === 'sazon');
+  if (sinMenuPropio || defaultCerrado) {
+    logger.warn({ jid, slug, motivo: sinMenuPropio ? 'sin_menu_propio' : 'default_cerrado' },
+      '⚠️ no servimos el menú default — mensaje neutro dedup-safe');
+    await responderNeutroDedup(sock, jid, `neutro:${slug ?? 'default'}`, COPY_SIN_LOCAL, logger);
     return;
   }
 
