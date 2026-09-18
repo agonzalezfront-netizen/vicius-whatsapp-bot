@@ -26,6 +26,12 @@ function register(t) {
     // slug ausente/null → el bot cae al menú default (back-compat, mandato F1.5 #3: un tenant sin
     // slug sigue funcionando como hoy, no rompe al Sazón mientras no se le asigne uno explícito).
     slug: t.slug ?? null,
+    // BUG 2324 (18-09): modo del número. 'app' = un solo mensaje que deriva a la carta (política 11-09),
+    // reusando la maquinaria de modo derivación SIN depender de que el wizard conozca este slug. `cartaUrl`
+    // y `copy` (opcional) vienen del config del tenant → el mensaje NO se hardcodea.
+    modo: t.modo ?? null,
+    cartaUrl: t.cartaUrl ?? t.carta_url ?? null,
+    copy: t.copy ?? null,
   });
 }
 

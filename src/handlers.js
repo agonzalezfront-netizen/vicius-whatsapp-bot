@@ -1,7 +1,7 @@
 import { generarRespuesta, derivacionVerbal } from './claude.js';
 import { estaAbierto, mensajeCerrado } from './horario.js';
 import { crearPedido, subirComprobante, buscarPedidoEsperandoComprobante, estadoUltimoPedido } from './pedidos-client.js';
-import { getActiveMenu } from './active-menu.js';
+import { getActiveMenu, hasOwnMenu } from './active-menu.js';
 import { calcularPedido, construirResumen } from './precios.js';
 import { registrarMensaje, botPausado, escalarAHumano } from './comunicaciones-client.js';
 import { enviarPushEquipo } from './push.js';
@@ -15,6 +15,19 @@ const COPY_DERIVACION_FALLBACK =
   '¡Hola! 👋 Todos nuestros pedidos se hacen desde nuestra carta digital — ahí armas tu pedido, subes el ' +
   'comprobante y sigues su preparación en vivo. Este es el único mensaje que responde este número.\n' +
   '💡 Guarda este chat para pedir cuando quieras.';
+
+// BUG 2324 (18-09): copy del modo `app` armada desde el CONFIG del tenant (nombre + link de la carta), no
+// hardcodeada. La usa el número en modo app cuando el wizard no trae una copy propia para ese local.
+function copyApp(name, url) {
+  const n = name && name !== 'sazon' ? name : 'nuestro local';
+  return `¡Hola! 👋 Bienvenido a ${n}. Mira la carta y haz tu pedido acá: ${url}\n` +
+    'Es el único mensaje por WhatsApp — el pedido, el pago y el seguimiento van en la carta. 💡 Guarda este chat.';
+}
+
+// Mensaje neutro para un número cuyo local no tiene menú propio ni modo app (ej. quedó sin carta o el local
+// cerró): NO servimos la carta de otro local. Un solo saliente, dedup-safe por el webhook.
+const COPY_SIN_LOCAL =
+  'Por este número no estamos tomando pedidos en este momento. Gracias por escribir. 🙏';
 
 // Sección Comunicaciones (handoff v1). Flag OFF por default → comportamiento idéntico
 // al actual (cero riesgo al deployar). ON cuando el wizard tenga los endpoints + la UI:
@@ -353,7 +366,7 @@ function extractText(msg) {
 // `slug` (multitenant F1.5, opcional): local del tenant que originó el mensaje (resuelto por el
 // caller — hoy solo el webhook Cloud API, vía tenants.js — a partir del phone_number_id). Sin slug
 // (Baileys/Sazón sin tenant Cloud API) el tier básico usa el menú default, comportamiento intacto.
-export async function handleMessage({ sock, logger, menu, msg, slug }) {
+export async function handleMessage({ sock, logger, menu, msg, slug, tenantModo = null, cartaUrl = null, tenantName = null, tenantCopy = null }) {
   if (!msg.message) return;
   const jid = msg.key.remoteJid;
   if (!jid || jid.endsWith('@g.us') || jid === 'status@broadcast') return;
@@ -391,17 +404,32 @@ export async function handleMessage({ sock, logger, menu, msg, slug }) {
   // confirmación y seguimiento viven en la app. La guarda de clase (exactamente 1 saliente por cliente
   // por ventana) es determinista y server-independiente (derivacion-registro.js, no depende del LLM).
   // Va ANTES de `pausado`/botones/LLM: en derivación, el único saliente posible es el mensaje único.
+  // BUG 2324 (18-09): el modo `app` del tenant (WA_TENANTS `modo:"app"`, ej. A Sushi) reusa la MISMA maquinaria
+  // determinista del modo derivación (un saliente por cliente por ventana, `derivacion-registro.js`) SIN depender
+  // de que el wizard conozca este slug. Así un catálogo (asushi) responde UN mensaje que deriva a su carta, en vez
+  // de caer al menú-del-día default (la carta vieja del Sazón). Precedencia: el flag del tenant manda; si no, el wizard.
   const waCfg = await getWaConfig(slug ?? 'sazon');
-  if (waCfg.modo === 'derivacion') {
+  const modoEfectivo = (tenantModo === 'app') ? 'derivacion' : waCfg.modo;
+  if (modoEfectivo === 'derivacion') {
     const ventanaMs = (Number(waCfg.ventana_horas) || 24) * 3600 * 1000;
     const dec = registrarContactoDerivacion(slug ?? 'sazon', jid, ventanaMs, Date.now());
     if (dec.enviar) {
-      const copy = waCfg.copy || COPY_DERIVACION_FALLBACK;
+      // copy: la del wizard si existe; si no, la del tenant; si no, una armada del config (nombre + carta); último, el fallback.
+      const copy = waCfg.copy || tenantCopy || (cartaUrl ? copyApp(tenantName, cartaUrl) : COPY_DERIVACION_FALLBACK);
       await sendBotMessage(sock, jid, { text: copy });
-      logger.info({ jid, slug, tipo: dec.tipo }, '📨 modo derivación: mensaje único enviado');
+      logger.info({ jid, slug, tipo: dec.tipo, via: tenantModo === 'app' ? 'wa_tenants' : 'wizard' }, '📨 modo app/derivación: mensaje único enviado');
     } else {
-      logger.info({ jid, slug }, '🤫 modo derivación: dentro de la ventana → silencio');
+      logger.info({ jid, slug }, '🤫 modo app/derivación: dentro de la ventana → silencio');
     }
+    return;
+  }
+
+  // BUG 2324 — "matar el default": un número con slug propio (≠ sazon) que NO tiene menú propio publicado ni modo
+  // app NO debe caer al menú default (la carta vieja del Sazón). Responde un mensaje neutro y corta (dedup-safe).
+  // (El Sazón usa el slot default; no lo tocamos acá — el menú viejo se ARCHIVA aparte, ver PROVISION-numero-tenant.md.)
+  if (slug && slug !== 'sazon' && !hasOwnMenu(slug)) {
+    logger.warn({ jid, slug }, '⚠️ tenant sin menú propio ni modo app — no servimos el default; mensaje neutro');
+    await sendBotMessage(sock, jid, { text: COPY_SIN_LOCAL });
     return;
   }
 

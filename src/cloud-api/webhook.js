@@ -110,7 +110,8 @@ export async function handleIncoming(rawBody, signatureHeader, ctx) {
         try {
           // Multitenant F1.5: el slug del tenant (mapeado a su local en el wizard) viaja en el ctx
           // de CADA mensaje → handleMessage lo pasa al ciclo por turno, que pide el menú de ESE local.
-          await handleMessage({ sock, logger, menu, msg, slug: tenant.slug });
+          await handleMessage({ sock, logger, menu, msg, slug: tenant.slug,
+            tenantModo: tenant.modo, cartaUrl: tenant.cartaUrl, tenantName: tenant.name, tenantCopy: tenant.copy });
         } catch (err) {
           logger.error?.({ err: err.message, stack: err.stack }, 'webhook: handleMessage falló');
         }

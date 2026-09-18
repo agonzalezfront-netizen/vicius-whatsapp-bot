@@ -1,5 +1,15 @@
 # Provisión de un número WhatsApp por local (activar un tenant nuevo)
 
+> ## ✅ EJECUTADO 2026-09-07 — A Sushi CONECTADO (verificado por conducta)
+> - Número **A Sushi +56 9 7554 2324** · phone_number_id **1270562506150335** · WABA 1041108798337758 (la del Sazón).
+> - **Register**: `POST graph.facebook.com/v25.0/1270562506150335/register` `{messaging_product:whatsapp, pin:836372}` → `{"success":true}`.
+> - **WA_TENANTS** (Railway `vicius-whatsapp-bot`, `--skip-deploys`): `[{phoneNumberId:"1270562506150335", token:<WA_TOKEN>, name:"A Sushi", slug:"asushi"}]`.
+>   **NO se tocó `WA_PHONE_NUMBER_ID`** (Sazón `1184719278057586`): `loadTenantsFromEnv` carga AMBOS (WA_TENANTS + tenant único del env). Menor riesgo.
+> - **Redeploy**: `railway redeploy --service vicius-whatsapp-bot -y` (commit `982ca0d`, no retrocedió).
+> - **Verificado**: `/healthz` tenants:2; A Sushi status CONNECTED (Meta Graph, VERIFIED); Sazón CONNECTED (preservado);
+>   aislamiento de menú OK (`viciusstudio.cl/wizard/api/web/menu?local=asushi` → 16 secciones de A Sushi).
+> - **Pendiente**: test de mensaje real (mandar WhatsApp al número → el bot responde carta de A Sushi). Rollback: Railway 1 clic.
+
 > Estado: 2026-08-20 · Autor: Vicius · Contexto: activar A Sushi si firma (reunión 21-08).
 > Este documento responde el encargo #2 del backlog ultracode: **qué se necesita para dar de alta
 > un número WhatsApp nuevo apuntando a un tenant, cuánto tarda, y qué pasos son de Alberto vs Vicius.**
@@ -76,3 +86,66 @@ negocio* por día: 250 → 1K → …, sube con calidad/uso). Para A Sushi esto 
 responde a clientes que escriben primero (ventana de 24h, no cuenta contra el tier de iniciadas). Solo
 importaría si A Sushi quisiera hacer campañas salientes masivas — ahí sí hay rampa. Lo dejo señalado para
 no prometer envío masivo el día 1.
+
+---
+## A SUSHI — número registrado en Meta 2026-09-07 15:27 (Cortex, vía Business Manager)
+- Número: **+56 9 7554 2324** (+56975542324)
+- Nombre visible: **A Sushi** · Categoría: Comida y comestibles
+- **phone_number_id: 1270562506150335**
+- WABA: la misma del Sazón (business_id 956631390702915, asset_id 1041108798337758)
+- Estado en Meta: **Pendiente** (verificado por SMS; NO conectado a Cloud API todavía)
+- FALTA (no chip-dependiente, bloqueado por acceso a la Railway del bot):
+  1. register: POST /1270562506150335/register con PIN 2FA (via WA_TOKEN del bot) → CONNECTED
+  2. WA_TENANTS += {phoneNumberId:"1270562506150335", token, slug:"asushi"} + redeploy del bot
+  3. verificar /healthz/meta muestre el número CONNECTED
+
+---
+## ✅ CHECKLIST A→Z de alta de tenant (post-BUG 2324, 2026-09-18) — AUTORITATIVO
+
+> Este checklist REEMPLAZA la lectura suelta de la tabla de arriba como "definición de terminado". Nace del
+> BUG 2324: el número de A Sushi respondía con la **carta vieja del Sazón** (menú de junio). Causa raíz
+> confirmada en vivo: un slug propio (≠ sazon) **sin menú propio publicado en el bot Y sin `modo:"app"`**
+> cae a `getActiveMenu(slug)` → slot DEFAULT → el último menú publicado (el del Sazón, local cerrado). El
+> sensor `qa-harness/verif_tenant_numero.py` corrido contra prod lo detectó: default = "Viernes 1"
+> (2026-06-25), 85 días viejo.
+
+### Regla de oro (la que evita el 2324)
+Un tenant con número propio SIEMPRE debe tener **una** de estas dos formas de contenido — nunca ninguna:
+
+- **(A) modo `app`** — `WA_TENANTS[i]` con `modo:"app"` + `cartaUrl` (o `copy`). El bot manda UN mensaje
+  único con el link a la carta web y calla durante la ventana (reusa la guarda de derivación). Es lo que
+  usa **asushi** hoy. Elegir esta si el pedido va por la carta web (`/pedir/<slug>`).
+- **(B) menú propio en el bot** — publicar el menú del local por slug para que `hasOwnMenu(slug)` sea true
+  y el flujo conversacional sirva SU carta. Elegir esta solo si el local opera el flujo conversacional.
+
+Si un slug ≠ sazon no tiene ni (A) ni (B) → **cae al default** (bug 2324). El bot ya tiene una red: sin
+menú propio ni modo app manda un mensaje **neutro** ("no estamos tomando pedidos por acá"), NO la carta
+ajena — pero eso es el fallback de seguridad, no un alta correcta.
+
+### Pasos (con dueño y gate)
+| # | Paso | Quién | Gate de verificación |
+|---|------|-------|----------------------|
+| 1 | Número en Meta: agregado a la WABA verificada + verificado por SMS/llamada | **Alberto** (físico + Business Manager) | Aparece en Business Manager |
+| 2 | `POST /{pnid}/register` con PIN 2FA → CONNECTED | **Vicius** | `GET /healthz/meta` muestra el número CONNECTED |
+| 3 | Elegir forma de contenido: **(A) modo app** o **(B) menú propio** (regla de oro) | **Vicius** + decisión de negocio | — |
+| 4 | `WA_TENANTS` en Railway: entrada `{phoneNumberId, token, name, slug}` **+ si es (A): `modo:"app"` + `cartaUrl`** | **Vicius** | — |
+| 4b | `cartaUrl` sale del config del tenant, no inventado (la carta real y viva: `GET <cartaUrl>` = 200) | **Vicius** | `curl <cartaUrl>` → 200 |
+| 5 | **Gate del sensor**: `verif_tenant_numero.py` con `WA_TENANTS` real + `BOT_HEALTHZ` de prod → PASS | **Vicius** | ver comando abajo — DEBE dar `TENANT-NUMERO: PASS` |
+| 6 | Redeploy manual del bot en Railway (el push NO auto-deploya; memoria `whatsapp-bot-deploy-manual-railway`) | **Vicius** | deploy SUCCESS + `GET /healthz` `commit` esperado y `tenants` con el nuevo |
+| 7 | **PRUEBA DE MENSAJE REAL (obligatoria, no salteable)**: mandar WhatsApp al número desde OTRO teléfono | **Alberto/Cortex** (brazo `wa_send.py`) | pegar la respuesta textual en el puente; debe ser la carta/flujo del tenant correcto, NO la del Sazón |
+| 8 | Archivar (NO borrar) el menú default viejo si el sensor lo marca stale | **Vicius/Cortex** (dato de prod) | re-correr sensor con `BOT_HEALTHZ` → sin flag de default viejo |
+
+### Gate del sensor (paso 5) — copy-paste
+```bash
+cd whatsapp-bot
+WA_TENANTS='<el JSON real de Railway>' \
+BOT_HEALTHZ=https://vicius-whatsapp-bot-production.up.railway.app \
+python qa-harness/verif_tenant_numero.py     # exit 0 = PASS; 1 = FALLA (no dar de alta)
+```
+Chequea: (1) todo slug ≠ sazon tiene `modo:"app"` (+ cartaUrl/copy) o queda documentado que tiene menú
+propio; (2) el slot default de prod no sirve un menú viejo de un local cerrado.
+
+### 🚫 "Usable" NO es "según /healthz"
+`/healthz` dice CONNECTED aunque el bot conteste con la carta equivocada (fue el caso del 2324). Un número
+**no se declara usable sin el paso 7** (mensaje real + respuesta pegada al puente). El sensor y healthz son
+la red barata ENTRE pruebas reales, no las reemplazan.

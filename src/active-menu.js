@@ -29,6 +29,12 @@ export function getActiveMenu(slug) {
   return activeMenu;
 }
 
+// BUG 2324 (18-09): ¿este slug tiene menú PROPIO publicado, o caería al slot default? Sirve para no dejar
+// que un número caiga a la carta de otro local (el default viejo del Sazón). true = tiene el suyo.
+export function hasOwnMenu(slug) {
+  return !!(slug && menuBySlug.has(slug));
+}
+
 export function clearActiveMenu(slug) {
   if (slug) { menuBySlug.delete(slug); return; }
   activeMenu = null;
