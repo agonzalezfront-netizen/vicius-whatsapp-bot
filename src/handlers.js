@@ -38,6 +38,15 @@ const COPY_SIN_LOCAL =
 // exporta a archivado/). Si el Sazón reabre, se apaga el flag y el número vuelve al flujo de menú.
 const DEFAULT_CERRADO = /^(1|true|yes|on)$/i.test(process.env.LOCAL_DEFAULT_CERRADO ?? '');
 
+// D16 incremento 2: ¿el jid entrante es el número verificado del dueño? Compara solo dígitos, tolerante a
+// formatos (+, 9, prefijos). Exige ≥8 dígitos para no matchear por casualidad.
+function _mismoNumero(jid, numero) {
+  const j = String(jid || '').split('@')[0].replace(/\D/g, '');
+  const n = String(numero || '').replace(/\D/g, '');
+  if (j.length < 8 || n.length < 8) return false;
+  return j === n || j.endsWith(n) || n.endsWith(j);
+}
+
 // Neutro DEDUP-SAFE: exactamente 1 saliente por (clave, jid) por ventana, reusando la guarda determinista de
 // derivación (derivacion-registro.js). `registroKey` va aparte de los tenants reales (prefijo neutro:) para no
 // tocar sus contadores de facturación. Sin esto, un cliente que insiste recibiría un neutro por cada mensaje.
@@ -431,6 +440,15 @@ export async function handleMessage({ sock, logger, menu, msg, slug, tenantModo 
   // de que el wizard conozca este slug. Así un catálogo (asushi) responde UN mensaje que deriva a su carta, en vez
   // de caer al menú-del-día default (la carta vieja del Sazón). Precedencia: el flag del tenant manda; si no, el wizard.
   const waCfg = await getWaConfig(slug ?? 'sazon');
+  // D16 incremento 2 — MODO PRUEBA: si está vigente y quien escribe es el número verificado del DUEÑO, el bot
+  // le sirve el BORRADOR (waCfg.prueba.copy) saltando la ventana de derivación; los clientes reales NO se ven
+  // afectados (siguen con el activo). Va ANTES de la derivación/ventana. El wizard controla vigencia y número.
+  const _pr = waCfg.prueba;
+  if (_pr && _pr.activo && _pr.copy && _mismoNumero(jid, _pr.numero)) {
+    await sendBotMessage(sock, jid, { text: _pr.copy });
+    logger.info?.({ jid, slug }, '🧪 modo prueba: borrador servido al dueño (bypass ventana)');
+    return;
+  }
   const modoEfectivo = (tenantModo === 'app') ? 'derivacion' : waCfg.modo;
   if (modoEfectivo === 'derivacion') {
     const ventanaMs = (Number(waCfg.ventana_horas) || 24) * 3600 * 1000;
